@@ -63,4 +63,20 @@ describe('stdio smoke (built dist)', () => {
     child.kill();
     await once(child, 'exit');
   }, 15_000);
+
+  it('selfhost server exits when the MCP client closes stdin (no orphan holding the port)', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'sd-smoke-exit-'));
+    const child = spawn('node', ['dist/index.js'], {
+      env: { ...process.env, SHAREDOC_BACKEND: 'selfhost', SHAREDOC_DATA_DIR: dataDir, SHAREDOC_PORT: '0' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    await new Promise(r => setTimeout(r, 600)); // let it boot
+    child.stdin.end(); // client gone
+    const exited = await Promise.race([
+      once(child, 'exit').then(() => true),
+      new Promise<false>(r => setTimeout(() => r(false), 3000)),
+    ]);
+    if (!exited) child.kill();
+    expect(exited).toBe(true);
+  }, 10_000);
 });

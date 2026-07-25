@@ -41,6 +41,11 @@ async function makeBackend(): Promise<ShareBackend> {
 async function main(): Promise<void> {
   const server = buildServer(await makeBackend());
   await server.connect(new StdioServerTransport());
+  // When the MCP client goes away (stdin closes), exit instead of letting the
+  // selfhost viewer keep the process alive — an orphan would hold the port and
+  // block the next client's spawn.
+  process.stdin.on('close', () => process.exit(0));
+  process.stdin.on('end', () => process.exit(0));
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
