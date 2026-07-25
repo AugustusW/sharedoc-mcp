@@ -21,6 +21,8 @@ export interface CreateDocParams {
 
 export interface SearchParams {
   titleQuery?: string;
+  /** Body-text search. Selfhost searches full content; gist searches the stored opening excerpt. */
+  contentQuery?: string;
   status?: DocStatus;
   limit?: number;
 }
@@ -44,6 +46,8 @@ export interface ShareBackend {
   resetPassword(docId: string, newPassword: string | null, updatedUser?: string): Promise<void>;
   updateTitle(docId: string, newTitle: string, updatedUser?: string): Promise<void>;
   revokeDoc(docId: string, updatedUser?: string): Promise<void>;
+  /** Hard delete: the record disappears entirely (≠ revoke, which keeps history + grace). */
+  deleteDoc(docId: string): Promise<void>;
   searchDocs(p: SearchParams): Promise<DocRecord[]>;
   capabilities(): BackendCapabilities;
 }

@@ -10,6 +10,7 @@ function stubBackend(over: Partial<ShareBackend> = {}): ShareBackend {
     resetPassword: async () => {},
     updateTitle: async () => {},
     revokeDoc: async () => {},
+    deleteDoc: async () => {},
     searchDocs: async () => [],
     capabilities: () => ({ password: 'none', expiry: 'lazy', revoke: 'hard-delete' }),
     ...over,
@@ -57,12 +58,27 @@ describe('tool handlers', () => {
     expect(r.error).toMatch(/status/);
   });
 
-  it('all 7 tools exist (create_shared_file removed for security — no path allowlist)', () => {
+  it('all 8 tools exist (delete added; create_shared_file stays removed)', () => {
     const h = buildToolHandlers(stubBackend());
     expect(Object.keys(h).sort()).toEqual([
-      'append_to_shared_doc', 'create_shared_doc',
+      'append_to_shared_doc', 'create_shared_doc', 'delete_shared_doc',
       'extend_shared_doc', 'reset_shared_doc_password', 'revoke_shared_doc',
       'search_shared_docs', 'update_shared_doc_title',
     ]);
+  });
+
+  it('delete_shared_doc passes extracted id and returns {ok, doc_id}', async () => {
+    let got = '';
+    const h = buildToolHandlers(stubBackend({ deleteDoc: async id => { got = id; } }));
+    const r = await h.delete_shared_doc({ doc_id_or_url: 'https://gist.github.com/u/f00dfeed' });
+    expect(got).toBe('f00dfeed');
+    expect(r).toEqual({ ok: true, doc_id: 'f00dfeed' });
+  });
+
+  it('search passes content_query through', async () => {
+    let seen: unknown;
+    const h = buildToolHandlers(stubBackend({ searchDocs: async p => { seen = p; return []; } }));
+    await h.search_shared_docs({ content_query: 'budget' });
+    expect((seen as { contentQuery?: string }).contentQuery).toBe('budget');
   });
 });

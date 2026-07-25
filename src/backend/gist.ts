@@ -86,7 +86,7 @@ export class GistBackend implements ShareBackend {
       docId, title: p.title, url, status: 'active', author: p.author ?? null,
       createdAt: now.toISOString(), updatedAt: now.toISOString(),
       expiresAt: p.expiresInHours ? new Date(now.getTime() + p.expiresInHours * 3600e3).toISOString() : null,
-      contentHash: hash, filename,
+      contentHash: hash, filename, excerpt: p.content.slice(0, 200),
     });
     return { url };
   }
@@ -144,10 +144,24 @@ export class GistBackend implements ShareBackend {
     this.store.update(docId, { status: 'revoked' }, this.now());
   }
 
+  async deleteDoc(docId: string): Promise<void> {
+    const e = this.store.get(docId);
+    if (!e) throw new BackendError(`doc ${docId} not found in local index.`);
+    if (e.status === 'active') {
+      try {
+        await this.gh(['gist', 'delete', docId, '--yes']);
+      } catch { /* gist may already be gone — the index cleanup is the point */ }
+    }
+    this.store.remove(docId);
+  }
+
   async searchDocs(p: SearchParams): Promise<DocRecord[]> {
     await this.lazyCleanup();
-    // Map IndexEntry → DocRecord: internal fields (contentHash, filename) stay internal.
-    return this.store.search(p).map(({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }) =>
-      ({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }));
+    const cq = (p.contentQuery ?? '').toLowerCase();
+    return this.store.search(p)
+      .filter(e => cq === '' || (e.excerpt ?? '').toLowerCase().includes(cq))
+      // Map IndexEntry → DocRecord: internal fields (contentHash, filename, excerpt) stay internal.
+      .map(({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }) =>
+        ({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }));
   }
 }

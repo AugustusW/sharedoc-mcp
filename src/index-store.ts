@@ -5,6 +5,8 @@ import type { DocRecord, DocStatus } from './backend/types.js';
 export interface IndexEntry extends DocRecord {
   contentHash: string;
   filename?: string;
+  /** Opening excerpt of the content at creation time — the only body text searchable on gist. */
+  excerpt?: string;
 }
 
 /** Tiny JSON-file document index. Atomic writes (tmp + rename). */
@@ -48,6 +50,10 @@ export class IndexStore {
 
   get(docId: string): IndexEntry | undefined {
     return this.load().find(e => e.docId === docId);
+  }
+
+  remove(docId: string): void {
+    this.save(this.load().filter(e => e.docId !== docId));
   }
 
   update(docId: string, patch: Partial<IndexEntry>, now: Date = new Date()): void {

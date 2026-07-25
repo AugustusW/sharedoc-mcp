@@ -61,6 +61,11 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       await backend.revokeDoc(id, caller(a.updated_user as string));
       return { ok: true, doc_id: id };
     }),
+    delete_shared_doc: wrap(async a => {
+      const id = extractDocId(String(a.doc_id_or_url));
+      await backend.deleteDoc(id);
+      return { ok: true, doc_id: id };
+    }),
     search_shared_docs: wrap(async a => {
       const status = a.status as string | undefined;
       if (status !== undefined && !['active', 'revoked', 'expired'].includes(status)) {
@@ -68,6 +73,7 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       }
       const results = await backend.searchDocs({
         titleQuery: (a.title_query as string) ?? '',
+        contentQuery: (a.content_query as string) ?? '',
         status: status as never, limit: (a.limit as number) ?? 20,
       });
       return { results };
@@ -106,13 +112,18 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     inputSchema: { doc_id_or_url: z.string(), new_title: z.string(), updated_user: optStr },
   },
   revoke_shared_doc: {
-    description: 'Revoke a shared doc. Gist backend: the gist is deleted immediately and irreversibly. Selfhost backend: revoked with a 7-day grace before content is purged.',
+    description: 'Revoke a shared doc: the link stops working but the record stays searchable. Gist backend: the gist is deleted immediately and irreversibly. Selfhost backend: revoked with a 7-day grace before content is purged. To erase the record entirely, use delete_shared_doc.',
     inputSchema: { doc_id_or_url: z.string(), updated_user: optStr },
   },
+  delete_shared_doc: {
+    description: 'Permanently delete a shared doc: the link dies AND the record disappears from search — unlike revoke_shared_doc, no history is kept. Irreversible on both backends.',
+    inputSchema: { doc_id_or_url: z.string() },
+  },
   search_shared_docs: {
-    description: 'Search shared docs by title substring (empty = all) with optional status filter, limit max 100.',
+    description: 'Find previously shared docs and their links. Call with NO arguments to list the newest docs (each result includes its share URL). title_query filters by title substring; content_query searches body text (selfhost: full content; gist: the opening excerpt only); status filters active/revoked/expired; limit max 100.',
     inputSchema: {
       title_query: optStr,
+      content_query: optStr,
       status: z.enum(['active', 'revoked', 'expired']).optional(),
       limit: z.number().optional(),
     },

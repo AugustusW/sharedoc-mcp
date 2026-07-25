@@ -152,6 +152,33 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
       { password: 'none', expiry: 'lazy', revoke: 'hard-delete' });
   });
 
+  it('deleteDoc removes the gist AND the index entry entirely (search gone)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { store, backend } = makeBackend(fake);
+    await backend.createDoc({ title: 't', content: 'c' });
+    await backend.deleteDoc('f00dfeed');
+    expect(fake.calls.some(c => c.argv[2] === 'delete' && c.argv.includes('--yes'))).toBe(true);
+    expect(store.get('f00dfeed')).toBeUndefined();
+    expect((await backend.searchDocs({})).length).toBe(0);
+  });
+
+  it('deleteDoc on a revoked entry still cleans the index (gist already gone)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { store, backend } = makeBackend(fake);
+    await backend.createDoc({ title: 't', content: 'c' });
+    await backend.revokeDoc('f00dfeed');
+    await backend.deleteDoc('f00dfeed');
+    expect(store.get('f00dfeed')).toBeUndefined();
+  });
+
+  it('content search matches the stored opening excerpt', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'Report', content: 'quarterly budget details…' });
+    expect((await backend.searchDocs({ contentQuery: 'budget' })).length).toBe(1);
+    expect((await backend.searchDocs({ contentQuery: 'nonexistent' })).length).toBe(0);
+  });
+
   it('searchDocs returns DocRecord shape only (no internal fields)', async () => {
     const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
     const { backend } = makeBackend(fake);

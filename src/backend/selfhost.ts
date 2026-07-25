@@ -175,16 +175,25 @@ export class SelfHostBackend implements ShareBackend {
     this.db.prepare(`UPDATE docs SET status = 'revoked', revokedAt = ?, updatedAt = ? WHERE docId = ?`).run(nowIso, nowIso, docId);
   }
 
+  async deleteDoc(docId: string): Promise<void> {
+    this.housekeeping();
+    const changed = this.db.prepare(`DELETE FROM docs WHERE docId = ?`).run(docId).changes;
+    if (changed === 0) throw new BackendError(`doc ${docId} not found`);
+  }
+
   async searchDocs(p: SearchParams): Promise<DocRecord[]> {
     this.housekeeping();
     const limit = Math.min(p.limit ?? 20, 100);
-    const q = (p.titleQuery ?? '').replace(/[%_\\]/g, c => `\\${c}`);
+    const esc = (s: string) => s.replace(/[%_\\]/g, c => `\\${c}`);
+    const q = esc(p.titleQuery ?? '');
+    const cq = esc(p.contentQuery ?? '');
     const rows = this.db.prepare(`
       SELECT docId, title, status, author, createdAt, updatedAt, expiresAt FROM docs
       WHERE (? = '' OR lower(title) LIKE '%' || lower(?) || '%' ESCAPE '\\')
+        AND (? = '' OR lower(COALESCE(content, '')) LIKE '%' || lower(?) || '%' ESCAPE '\\')
         AND (? IS NULL OR status = ?)
       ORDER BY createdAt DESC LIMIT ?`).all(
-      q, q, p.status ?? null, p.status ?? null, limit) as never[];
+      q, q, cq, cq, p.status ?? null, p.status ?? null, limit) as never[];
     return (rows as Array<Omit<DocRecord, 'url'>>).map(r => ({ ...r, url: `${this.publicUrl}/docs/${r.docId}` }));
   }
 }

@@ -125,6 +125,37 @@ describe('SelfHostBackend doc ops', () => {
   });
 });
 
+describe('SelfHostBackend.deleteDoc (hard delete ≠ revoke)', () => {
+  it('removes the row entirely — docRow gone, search gone, works on any status', async () => {
+    const { backend } = makeBackend();
+    const id = (await backend.createDoc({ title: 'Gone', content: 'x' })).url.split('/').pop()!;
+    await backend.deleteDoc(id);
+    expect(backend.docRow(id)).toBeUndefined();
+    expect((await backend.searchDocs({})).length).toBe(0);
+
+    const rid = (await backend.createDoc({ title: 'R', content: 'y' })).url.split('/').pop()!;
+    await backend.revokeDoc(rid);
+    await backend.deleteDoc(rid); // revoked docs are deletable too
+    expect(backend.docRow(rid)).toBeUndefined();
+  });
+
+  it('unknown id rejects', async () => {
+    const { backend } = makeBackend();
+    await expect(backend.deleteDoc('3f2a8c1e-1111-2222-3333-444455556666')).rejects.toThrow(/not found/);
+  });
+});
+
+describe('SelfHostBackend content search', () => {
+  it('contentQuery matches body text; title match still works independently', async () => {
+    const { backend } = makeBackend();
+    await backend.createDoc({ title: 'Alpha', content: 'the quarterly budget line' });
+    await backend.createDoc({ title: 'Beta', content: 'vacation photos' });
+    const rows = await backend.searchDocs({ contentQuery: 'budget' });
+    expect(rows.map(r => r.title)).toEqual(['Alpha']);
+    expect((await backend.searchDocs({ titleQuery: 'beta' })).length).toBe(1);
+  });
+});
+
 describe('SelfHostBackend rate limiter (SQLite-backed)', () => {
   it('allows 5 per window per key, then blocks', () => {
     const { backend } = makeBackend();
