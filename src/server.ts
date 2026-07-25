@@ -93,7 +93,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     },
   },
   create_shared_file: {
-    description: 'Share a local file. Only supported on the selfhost backend (gists are text-only).',
+    description: 'Share a local file. Only supported on the selfhost backend (gists are text-only). Note: file links have no password or expiry — anyone with the (unguessable) link can download, indefinitely.',
     inputSchema: { file_path: z.string(), filename: optStr, content_type: optStr },
   },
   append_to_shared_doc: {

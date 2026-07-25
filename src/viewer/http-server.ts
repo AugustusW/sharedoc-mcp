@@ -80,13 +80,23 @@ export async function startViewer(
         return;
       }
       if (req.method === 'POST') {
+        // NOTE: behind a tunnel (Tailscale funnel / cloudflared) remoteAddress is the
+        // tunnel's loopback for ALL external requesters, so this bucket is effectively
+        // per-doc, not per-attacker — stricter than intended, never weaker. Documented
+        // in the README rather than trusting X-Forwarded-For (spoofable).
         const key = `${req.socket.remoteAddress}:${docId}`;
         if (!bucket.allow(key, now())) {
           res.writeHead(429, { 'content-type': 'text/plain', 'retry-after': String(bucket.retryAfterSeconds(key, now())) })
             .end('too many attempts');
           return;
         }
-        const body = await readBody(req);
+        let body: string;
+        try {
+          body = await readBody(req);
+        } catch {
+          res.writeHead(413, { 'content-type': 'text/plain' }).end('payload too large');
+          return;
+        }
         const password = new URLSearchParams(body).get('password') ?? '';
         if (!row.passwordHash || bcrypt.compareSync(password, row.passwordHash)) {
           res.writeHead(200, html).end(renderDoc(row.title, row.content));
@@ -102,11 +112,24 @@ export async function startViewer(
     if (fileMatch && req.method === 'GET') {
       const f = backend.fileRow(fileMatch[1]);
       if (!f) { res.writeHead(404, { 'content-type': 'text/plain' }).end('not found'); return; }
-      res.writeHead(200, {
-        'content-type': f.contentType ?? 'application/octet-stream',
-        'content-disposition': `attachment; filename="${f.filename.replace(/"/g, '')}"`,
+      // RFC 5987/6266: non-ASCII filenames go in filename*; the quoted filename is an
+      // ASCII fallback with CR/LF and quotes stripped (Node throws on non-ASCII header values).
+      const ascii = f.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\r\n]/g, '');
+      const star = encodeURIComponent(f.filename).replace(/['()]/g, escape);
+      const stream = createReadStream(f.path);
+      // A stream 'error' fires outside route()'s stack — without this handler a single
+      // GET for a row whose file vanished from disk would crash the whole process.
+      stream.on('error', () => {
+        if (!res.headersSent) res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end('file missing');
       });
-      createReadStream(f.path).pipe(res);
+      stream.once('open', () => {
+        res.writeHead(200, {
+          'content-type': (f.contentType ?? 'application/octet-stream').replace(/[\r\n]/g, ''),
+          'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${star}`,
+        });
+        stream.pipe(res);
+      });
       return;
     }
 

@@ -45,6 +45,16 @@ describe('SelfHostBackend.createDoc', () => {
     expect(b.url).toBe(a.url);
   });
 
+  it('retry that ADDS a password or expiry never reuses the unprotected doc', async () => {
+    const { backend } = makeBackend();
+    const open = await backend.createDoc({ title: 't', content: 'c', author: 'a' });
+    const withPw = await backend.createDoc({ title: 't', content: 'c', author: 'a', password: 'pw' });
+    expect(withPw.url).not.toBe(open.url);
+    expect(backend.docRow(withPw.url.split('/').pop()!)!.passwordHash).not.toBeNull();
+    const withExp = await backend.createDoc({ title: 't', content: 'c', author: 'a', expiresInHours: 1 });
+    expect(withExp.url).not.toBe(open.url);
+  });
+
   it('capabilities: full semantics', () => {
     const { backend } = makeBackend();
     expect(backend.capabilities()).toEqual(

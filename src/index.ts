@@ -25,13 +25,24 @@ async function makeBackend(): Promise<ShareBackend> {
       filesDir: join(dataDir, 'files'),
       publicUrl: process.env.SHAREDOC_PUBLIC_URL ?? `http://127.0.0.1:${port}`,
     });
-    const viewer = await startViewer(backend, { port });
-    // SHAREDOC_PORT=0 (ephemeral) resolves to a real port only after listen —
-    // rebind publicUrl to the actual port unless the user pinned SHAREDOC_PUBLIC_URL.
-    if (!process.env.SHAREDOC_PUBLIC_URL) {
-      backend.setPublicUrl(`http://127.0.0.1:${viewer.port}`);
+    try {
+      const viewer = await startViewer(backend, { port });
+      // SHAREDOC_PORT=0 (ephemeral) resolves to a real port only after listen —
+      // rebind publicUrl to the actual port unless the user pinned SHAREDOC_PUBLIC_URL.
+      if (!process.env.SHAREDOC_PUBLIC_URL) {
+        backend.setPublicUrl(`http://127.0.0.1:${viewer.port}`);
+      }
+      console.error(`sharedoc-mcp: viewer listening on 127.0.0.1:${viewer.port} (localhost only — use a tunnel to share externally)`);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+        // Another MCP client on this machine is already serving this port —
+        // with a shared data dir its viewer serves the same docs, so keep the
+        // tool layer alive instead of killing the whole process.
+        console.error(`sharedoc-mcp: port ${port} already in use — assuming another sharedoc-mcp viewer is serving; tools stay available`);
+      } else {
+        throw e;
+      }
     }
-    console.error(`sharedoc-mcp: viewer listening on 127.0.0.1:${viewer.port} (localhost only — use a tunnel to share externally)`);
     return backend;
   }
   console.error(`unknown SHAREDOC_BACKEND: ${backendName} (expected gist|selfhost)`);

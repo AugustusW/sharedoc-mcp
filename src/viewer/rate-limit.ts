@@ -6,6 +6,10 @@ export class TokenBucket {
 
   allow(key: string, now: Date): boolean {
     const t = now.getTime();
+    // Bound memory on long-running processes: sweep stale windows occasionally.
+    if (this.hits.size > 1000) {
+      for (const [k, v] of this.hits) if (t - v.windowStart >= this.windowMs) this.hits.delete(k);
+    }
     const e = this.hits.get(key);
     if (!e || t - e.windowStart >= this.windowMs) {
       this.hits.set(key, { windowStart: t, count: 1 });

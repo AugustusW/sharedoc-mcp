@@ -64,6 +64,28 @@ describe('stdio smoke (built dist)', () => {
     await once(child, 'exit');
   }, 15_000);
 
+  it('second selfhost client on a busy port keeps its tool layer alive (EADDRINUSE graceful)', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'sd-smoke-two-'));
+    const port = String(20000 + Math.floor(Math.random() * 20000));
+    const env = { ...process.env, SHAREDOC_BACKEND: 'selfhost', SHAREDOC_DATA_DIR: dataDir, SHAREDOC_PORT: port };
+    const first = spawn('node', ['dist/index.js'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    await new Promise(r => setTimeout(r, 700)); // first grabs the port
+    const second = spawn('node', ['dist/index.js'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let buf = '';
+    second.stdout.on('data', d => { buf += d; });
+    const send = (o: object) => second.stdin.write(JSON.stringify(o) + '\n');
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } });
+    await new Promise(r => setTimeout(r, 600));
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    await new Promise(r => setTimeout(r, 600));
+    first.kill(); second.kill();
+    await Promise.all([once(first, 'exit'), once(second, 'exit')]);
+    const toolsLine = buf.split('\n').filter(l => l.trim().startsWith('{')).find(l => JSON.parse(l).id === 2)!;
+    expect((JSON.parse(toolsLine).result.tools as { name: string }[]).length).toBe(8);
+  }, 15_000);
+
   it('selfhost server exits when the MCP client closes stdin (no orphan holding the port)', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'sd-smoke-exit-'));
     const child = spawn('node', ['dist/index.js'], {

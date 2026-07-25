@@ -69,8 +69,12 @@ export class GistBackend implements ShareBackend {
     const now = this.now();
     const hash = createHash('sha256')
       .update(`${p.title}\0${p.content}\0${p.author ?? ''}`).digest('hex');
-    const dup = this.store.findDuplicate(hash, DEDUP_WINDOW_MS, now);
-    if (dup) return { url: dup.url };
+    // Same guard as selfhost: only dedup expiry-free retries against expiry-free docs,
+    // so a retry that adds an expiry never silently reuses the everlasting URL.
+    if (p.expiresInHours == null) {
+      const dup = this.store.findDuplicate(hash, DEDUP_WINDOW_MS, now);
+      if (dup && dup.expiresAt === null) return { url: dup.url };
+    }
 
     const filename = `${slugify(p.title)}.md`;
     const out = await this.gh(['gist', 'create', '--filename', filename, '--desc', p.title, '-'], p.content);

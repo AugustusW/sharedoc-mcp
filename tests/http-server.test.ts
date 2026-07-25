@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SelfHostBackend } from '../src/backend/selfhost.js';
@@ -96,5 +96,27 @@ describe('HTTP viewer', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('file-content');
     expect(res.headers.get('content-disposition')).toContain('up.txt');
+  });
+
+  it('non-ASCII filename downloads via RFC 5987 (no 500)', async () => {
+    const src = join(dir, 'zh.md');
+    writeFileSync(src, 'zh-content');
+    const { url } = await backend.createFile({ filePath: src, filename: '週報.md' });
+    const res = await fetch(`${base}/files/${url.split('/files/').pop()!}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-disposition')).toContain(`filename*=UTF-8''`);
+  });
+
+  it('missing file on disk → 404, and the server survives (no process crash)', async () => {
+    const src = join(dir, 'gone.txt');
+    writeFileSync(src, 'x');
+    const { url } = await backend.createFile({ filePath: src });
+    const key = url.split('/files/').pop()!;
+    rmSync(backend.fileRow(key)!.path); // file vanishes after registration
+    const res = await fetch(`${base}/files/${key}`);
+    expect(res.status).toBe(404);
+    // server must still answer afterwards — the old code died on the stream error
+    const again = await fetch(`${base}/docs/3f2a8c1e-1111-2222-3333-444455556666`);
+    expect(again.status).toBe(404);
   });
 });
