@@ -96,6 +96,41 @@ Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `
 | **Cloudflare named tunnel** | you own a domain | domain on Cloudflare, `cloudflared tunnel create` + route a hostname to `http://127.0.0.1:8377` |
 | **cloudflared quick tunnel** | one-off sharing | `cloudflared tunnel --url http://127.0.0.1:8377` → random URL, changes every restart |
 
+#### Own a domain? Cloudflare named tunnel, step by step
+
+A branded, stable share URL like `https://docs.example.com/docs/<uuid>` — TLS handled by Cloudflare, works from behind NAT:
+
+```bash
+# one-time setup (domain already added to Cloudflare — the free plan is enough)
+cloudflared tunnel login
+cloudflared tunnel create sharedoc
+cloudflared tunnel route dns sharedoc docs.example.com
+```
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: sharedoc
+credentials-file: ~/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: docs.example.com
+    service: http://127.0.0.1:8377
+  - service: http_status:404
+```
+
+Run `cloudflared tunnel run sharedoc` (or install it as a service for always-on), and register the MCP server with the public URL:
+
+```bash
+claude mcp add sharedoc --scope user \
+  --env SHAREDOC_BACKEND=selfhost \
+  --env SHAREDOC_PUBLIC_URL=https://docs.example.com \
+  -- npx -y sharedoc-mcp
+```
+
+Extras this unlocks: Cloudflare's DDoS protection comes free; you can layer WAF rules, or put [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) (SSO) in front of everything except the share paths — an "SSO inside, password-protected shares outside" split.
+
+**Alternative — always-on without a home machine:** run sharedoc-mcp on a VPS (where your agent also runs) and point nginx/caddy at `127.0.0.1:8377` with your domain and auto-TLS; no tunnel needed.
+
 Environment variables:
 
 | Variable | Default | Meaning |

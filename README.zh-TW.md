@@ -96,6 +96,41 @@ claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y s
 | **Cloudflare named tunnel** | 有自己的網域 | 網域掛 Cloudflare，`cloudflared tunnel create` + 主機名 route 到 `http://127.0.0.1:8377` |
 | **cloudflared quick tunnel** | 臨時分享 | `cloudflared tunnel --url http://127.0.0.1:8377` → 隨機網址，每次重啟會變 |
 
+#### 有自己的網域？Cloudflare named tunnel 逐步版
+
+品牌化的固定分享網址，例如 `https://docs.example.com/docs/<uuid>`——TLS 由 Cloudflare 處理、機器在 NAT 後面也通：
+
+```bash
+# 一次性設定（網域已掛進 Cloudflare——免費方案就夠）
+cloudflared tunnel login
+cloudflared tunnel create sharedoc
+cloudflared tunnel route dns sharedoc docs.example.com
+```
+
+`~/.cloudflared/config.yml`：
+
+```yaml
+tunnel: sharedoc
+credentials-file: ~/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: docs.example.com
+    service: http://127.0.0.1:8377
+  - service: http_status:404
+```
+
+跑 `cloudflared tunnel run sharedoc`（要常駐就裝成 service），MCP 註冊時帶上公開網址：
+
+```bash
+claude mcp add sharedoc --scope user \
+  --env SHAREDOC_BACKEND=selfhost \
+  --env SHAREDOC_PUBLIC_URL=https://docs.example.com \
+  -- npx -y sharedoc-mcp
+```
+
+順帶解鎖：Cloudflare 的 DDoS 防護免費附送；可疊 WAF 規則，或在分享路徑以外套 [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/)（SSO）——變成「內部走 SSO、對外分享靠密碼」的雙層結構。
+
+**另一種情境——不想依賴家裡機器常開：**把 sharedoc-mcp 跑在 VPS 上（agent 也在那執行），nginx/caddy 反代 `127.0.0.1:8377` 配網域與自動 TLS 即可，不需要 tunnel。
+
 環境變數：
 
 | 變數 | 預設 | 意義 |
