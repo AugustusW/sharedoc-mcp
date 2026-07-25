@@ -5,10 +5,19 @@
   "license": "MIT",
   "author": "AugustusW",
   "type": "module",
-  "bin": { "sharedoc-mcp": "dist/index.js" },
+  "bin": {
+    "sharedoc-mcp": "dist/index.js"
+  },
   "main": "dist/index.js",
-  "files": ["dist", "README.md", "README.zh-TW.md", "LICENSE"],
-  "engines": { "node": ">=22.13.0" },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-TW.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "build": "tsc",
     "pretest": "npm run build",
@@ -17,10 +26,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "bcryptjs": "^3.0.3",
+    "marked": "^18.0.7",
+    "sanitize-html": "^2.17.6",
     "zod": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/sanitize-html": "^2.16.1",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }
