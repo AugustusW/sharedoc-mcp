@@ -1,6 +1,6 @@
 {
   "name": "sharedoc-mcp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Share agent-generated Markdown as links — GitHub gists today, your own server tomorrow. An MCP server.",
   "license": "MIT",
   "author": "AugustusW",
