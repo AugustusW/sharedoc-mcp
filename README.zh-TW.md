@@ -97,6 +97,8 @@ claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y s
 > ```
 >
 > MCP client 偵測到 daemon 已佔埠就直接沿用它。
+>
+> **什麼時候該設：**第一次把連結交給別人的那一刻——跟 tunnel 一起設（兩者都該常駐，如 launchd/systemd）。在那之前 MCP 模式的 viewer 就夠用；gist 後端使用者則永遠不需要。
 
 | 食譜 | 適合 | 設定 |
 |---|---|---|

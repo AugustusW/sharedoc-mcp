@@ -97,6 +97,10 @@ Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `
 > ```
 >
 > MCP clients detect the daemon already owns the port and simply use it.
+>
+> **When to set this up:** the moment you first hand a link to someone else — do it together
+> with your tunnel (both should be long-running, e.g. under launchd/systemd). Until then the
+> MCP-mode viewer is enough, and gist-backend users never need it.
 
 | Recipe | Fits you if | Setup |
 |---|---|---|
