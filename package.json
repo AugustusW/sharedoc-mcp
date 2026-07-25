@@ -1,0 +1,26 @@
+{
+  "name": "sharedoc-mcp",
+  "version": "0.1.0",
+  "description": "Share agent-generated Markdown as links — GitHub gists today, your own server tomorrow. An MCP server.",
+  "license": "MIT",
+  "author": "AugustusW",
+  "type": "module",
+  "bin": { "sharedoc-mcp": "dist/index.js" },
+  "main": "dist/index.js",
+  "files": ["dist", "README.md", "README.zh-TW.md", "LICENSE"],
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}
