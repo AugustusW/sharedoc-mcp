@@ -3,6 +3,32 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
+## [2.1.1] - 2026-07-25
+
+Viewer rendering round — table/dark-mode/element styling from a user report on mobile.
+
+### Fixed
+- **GFM strikethrough (`~~text~~`) survives sanitization** — `<del>` is not in
+  sanitize-html's default allowlist and was silently dropped, losing the strikethrough
+  meaning entirely
+- **Table column alignment survives sanitization** — marked emits GFM `:--:`/`--:` as a
+  presentational `align` attribute on `th`/`td`, which the sanitizer stripped
+- Tables render with real borders (`border-collapse`, cell padding, header background)
+  instead of unstyled runs of text
+- Wide tables scroll horizontally (`display:block; overflow-x:auto`) instead of bursting
+  the layout on phones
+- Dark mode: `color-scheme: light dark` plus a `prefers-color-scheme: dark` token set —
+  the page, and the password form's input/button, now follow the system theme instead of
+  always rendering white
+- `blockquote` (left border + muted text) and `img` (`max-width:100%; height:auto`) are
+  styled; large images no longer overflow on mobile
+
+### Changed
+- Minor polish: inline `code` gets padding + radius (reset inside `pre`), `kbd` renders
+  as a bordered keycap, task-list checkboxes drop the redundant list bullet
+- Document `<style>`/`style` attributes remain stripped by design — styling belongs to
+  the page template, content carries semantics only
+
 ## [2.1.0] - 2026-07-25
 
 User-audit round — all findings from a post-2.0.0 security/behavior review.

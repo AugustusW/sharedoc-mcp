@@ -121,4 +121,44 @@ describe('HTTP viewer', () => {
       expect(res.headers.get('content-security-policy')).toContain("default-src 'none'");
     }
   });
+
+  it('doc page stylesheet: dark-mode aware + table/blockquote/img rules', async () => {
+    const id = await createId({
+      title: 'Styled',
+      content: '| a | b |\n|---|---|\n| 1 | 2 |\n\n> quoted\n\n![pic](https://example.com/p.png)',
+    });
+    const html = await (await fetch(`${base}/docs/${id}`)).text();
+    // dark mode: color-scheme so form controls/scrollbars follow the system theme,
+    // plus an explicit prefers-color-scheme override block for our own tokens
+    expect(html).toContain('color-scheme:light dark');
+    expect(html).toContain('prefers-color-scheme:dark');
+    // tables render with real borders and scroll horizontally instead of bursting the layout
+    expect(html).toContain('border-collapse:collapse');
+    expect(html).toMatch(/table\{[^}]*overflow-x:auto/);
+    // blockquote and img are styled; large images shrink to the viewport
+    expect(html).toMatch(/blockquote\{[^}]*border-left/);
+    expect(html).toMatch(/img\{[^}]*max-width:100%/);
+    // the markdown table itself survived sanitize-html
+    expect(html).toContain('<table>');
+  });
+
+  it('password page shares the same dark-mode aware stylesheet', async () => {
+    const id = await createId({ title: 'PS', content: 'x', password: 'pw' });
+    const html = await (await fetch(`${base}/docs/${id}`)).text();
+    expect(html).toContain('color-scheme:light dark');
+    expect(html).toContain('prefers-color-scheme:dark');
+  });
+
+  it('GFM strikethrough survives sanitization', async () => {
+    const id = await createId({ title: 'Del', content: '~~obsolete~~ current' });
+    const html = await (await fetch(`${base}/docs/${id}`)).text();
+    expect(html).toContain('<del>obsolete</del>');
+  });
+
+  it('table column alignment (align attr) survives sanitization', async () => {
+    const id = await createId({ title: 'Align', content: '| L | C | R |\n|:--|:-:|--:|\n| a | b | c |' });
+    const html = await (await fetch(`${base}/docs/${id}`)).text();
+    expect(html).toContain('<th align="center">');
+    expect(html).toContain('<td align="right">');
+  });
 });
