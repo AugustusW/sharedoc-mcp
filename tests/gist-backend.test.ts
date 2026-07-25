@@ -87,7 +87,9 @@ describe('GistBackend.appendDoc', () => {
   it('fetches current content and PATCHes concatenation', async () => {
     const fake = makeFake({
       'gh gist create': `${GIST_URL}\n`,
-      'gh api gists/f00dfeed': '# hi',
+      'gh api gists/f00dfeed': JSON.stringify({
+        files: { 'my-report.md': { content: '# hi', truncated: false } },
+      }),
     });
     const { backend } = makeBackend(fake);
     await backend.createDoc({ title: 'My Report', content: '# hi' });
@@ -95,6 +97,19 @@ describe('GistBackend.appendDoc', () => {
     const patch = fake.calls.find(c => c.argv.includes('PATCH'))!;
     expect(patch.argv.slice(0, 3)).toEqual(['gh', 'api', 'gists/f00dfeed']);
     expect(JSON.parse(patch.input!).files['my-report.md'].content).toBe('# hi\nmore');
+  });
+
+  it('refuses to append when the API reports truncated content (data-loss guard)', async () => {
+    const fake = makeFake({
+      'gh gist create': `${GIST_URL}\n`,
+      'gh api gists/f00dfeed': JSON.stringify({
+        files: { 'my-report.md': { content: 'partial…', truncated: true } },
+      }),
+    });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'My Report', content: '# hi' });
+    await expect(backend.appendDoc('f00dfeed', 'more')).rejects.toThrow(/truncated/);
+    expect(fake.calls.some(c => c.argv.includes('PATCH'))).toBe(false);
   });
 
   it('unknown docId rejects (not in local index)', async () => {
@@ -136,5 +151,14 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     const { backend } = makeBackend(makeFake({}));
     expect(backend.capabilities()).toEqual(
       { password: 'none', expiry: 'lazy', files: false, revoke: 'hard-delete' });
+  });
+
+  it('searchDocs returns DocRecord shape only (no internal fields)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 't', content: 'c' });
+    const [row] = await backend.searchDocs({});
+    expect(Object.keys(row).sort()).toEqual(
+      ['author', 'createdAt', 'docId', 'expiresAt', 'status', 'title', 'updatedAt', 'url']);
   });
 });

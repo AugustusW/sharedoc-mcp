@@ -12,17 +12,30 @@ export class IndexStore {
   constructor(public readonly filePath: string) {}
 
   private load(): IndexEntry[] {
+    let raw: string;
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      return Array.isArray(parsed) ? parsed : [];
+      raw = readFileSync(this.filePath, 'utf8');
     } catch {
+      return []; // no index yet
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      // Corrupt index: preserve the evidence instead of silently overwriting it.
+      const aside = `${this.filePath}.corrupt`;
+      console.error(`sharedoc-mcp: index file ${this.filePath} is corrupt (${(e as Error).message}); moving it aside to ${aside} and starting fresh`);
+      try { renameSync(this.filePath, aside); } catch { /* best effort */ }
       return [];
     }
   }
 
   private save(entries: IndexEntry[]): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
+    // Unique temp name per write: two processes sharing the index (e.g. two MCP
+    // clients) must not clobber each other's in-flight temp file. Rename stays
+    // atomic; concurrent writers degrade to last-writer-wins.
+    const tmp = `${this.filePath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
     writeFileSync(tmp, JSON.stringify(entries, null, 2));
     renameSync(tmp, this.filePath);
   }

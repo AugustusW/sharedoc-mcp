@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('stdio smoke (built dist)', () => {
   it('answers initialize and lists 8 tools', async () => {
+    const indexPath = join(mkdtempSync(join(tmpdir(), 'sd-smoke-')), 'index.json');
     const child = spawn('node', ['dist/index.js'], {
-      env: { ...process.env, SHAREDOC_BACKEND: 'gist', SHAREDOC_INDEX_PATH: '/tmp/sd-smoke-index.json' },
+      env: { ...process.env, SHAREDOC_BACKEND: 'gist', SHAREDOC_INDEX_PATH: indexPath },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const send = (o: object) => child.stdin.write(JSON.stringify(o) + '\n');

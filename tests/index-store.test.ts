@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IndexStore, type IndexEntry } from '../src/index-store.js';
@@ -26,8 +26,16 @@ describe('IndexStore', () => {
     expect(again.get('abc123')?.title).toBe('Doc');
   });
 
-  it('get unknown returns undefined; empty/corrupt file yields empty store', () => {
+  it('get unknown returns undefined; missing file yields empty store', () => {
     expect(store.get('nope')).toBeUndefined();
+  });
+
+  it('corrupt index file: starts fresh and preserves the bad file aside', () => {
+    writeFileSync(store.filePath, '{not json!!', 'utf8');
+    expect(store.get('anything')).toBeUndefined();
+    store.add(entry());
+    expect(store.get('abc123')?.title).toBe('Doc');
+    expect(existsSync(`${store.filePath}.corrupt`)).toBe(true);
   });
 
   it('update patches fields and bumps updatedAt', () => {

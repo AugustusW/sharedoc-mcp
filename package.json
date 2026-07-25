@@ -11,6 +11,7 @@
   "engines": { "node": ">=22.13.0" },
   "scripts": {
     "build": "tsc",
+    "pretest": "npm run build",
     "test": "vitest run",
     "prepublishOnly": "npm run build && npm test"
   },

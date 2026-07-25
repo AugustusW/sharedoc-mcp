@@ -24,7 +24,7 @@ export const execRunner: CommandRunner = (argv, input) =>
 
 export function slugify(title: string): string {
   const kept = title.replace(/[^A-Za-z0-9 _-]/g, '').trim().toLowerCase()
-    .replace(/ +/g, '-').slice(0, 60);
+    .replace(/[ -]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
   return kept || 'doc';
 }
 
@@ -102,7 +102,18 @@ export class GistBackend implements ShareBackend {
     await this.lazyCleanup();
     const e = this.mustGet(docId);
     const filename = e.filename ?? `${slugify(e.title)}.md`;
-    const current = await this.gh(['api', `gists/${docId}`, '--jq', `.files["${filename}"].content`]);
+    const raw = await this.gh(['api', `gists/${docId}`]);
+    let file: { content?: string; truncated?: boolean } | undefined;
+    try {
+      file = JSON.parse(raw).files?.[filename];
+    } catch {
+      throw new BackendError(`could not parse gist ${docId} API response`);
+    }
+    if (!file) throw new BackendError(`gist ${docId} has no file named ${filename}`);
+    if (file.truncated) {
+      throw new BackendError(`gist ${docId} content is truncated by the GitHub API (file too large) — append refused to avoid data loss. Create a new doc instead.`);
+    }
+    const current = file.content ?? '';
     const body = JSON.stringify({ files: { [filename]: { content: current.replace(/\n$/, '') + content } } });
     await this.gh(['api', `gists/${docId}`, '-X', 'PATCH', '--input', '-'], body);
     this.store.update(docId, {}, this.now());
@@ -135,6 +146,8 @@ export class GistBackend implements ShareBackend {
 
   async searchDocs(p: SearchParams): Promise<DocRecord[]> {
     await this.lazyCleanup();
-    return this.store.search(p);
+    // Map IndexEntry → DocRecord: internal fields (contentHash, filename) stay internal.
+    return this.store.search(p).map(({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }) =>
+      ({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }));
   }
 }

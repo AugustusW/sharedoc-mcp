@@ -117,8 +117,12 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     inputSchema: { doc_id_or_url: z.string(), updated_user: optStr },
   },
   search_shared_docs: {
-    description: 'Search shared docs by title substring (empty = all) with optional status filter (active/revoked/expired), limit max 100.',
-    inputSchema: { title_query: optStr, status: optStr, limit: z.number().optional() },
+    description: 'Search shared docs by title substring (empty = all) with optional status filter, limit max 100.',
+    inputSchema: {
+      title_query: optStr,
+      status: z.enum(['active', 'revoked', 'expired']).optional(),
+      limit: z.number().optional(),
+    },
   },
 };
 
