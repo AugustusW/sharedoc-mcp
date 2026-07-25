@@ -1,40 +1,60 @@
 # sharedoc-mcp
 
-**Share agent-generated Markdown as links.** An MCP server that turns "here's the report" into a URL you can hand to anyone — backed by GitHub gists (zero setup) or your own machine (passwords, expiry, full control).
+> **Agent-generated Markdown → a link you can hand to anyone. GitHub gists today, your own server tomorrow.**
 
-[English](./README.md) | [繁體中文](./README.zh-TW.md)
+English | [繁體中文](./README.zh-TW.md)
 
-**Version 1.0.0** · [CHANGELOG](./CHANGELOG.md) · MIT
+[![npm](https://img.shields.io/npm/v/sharedoc-mcp?color=brightgreen)](https://www.npmjs.com/package/sharedoc-mcp)
+[![Release](https://img.shields.io/github/v/release/AugustusW/sharedoc-mcp?color=brightgreen)](https://github.com/AugustusW/sharedoc-mcp/releases)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.13-blue.svg)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/MCP-stdio%20server-orange.svg)](https://modelcontextprotocol.io/)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-orange.svg)](https://claude.com/claude-code)
+[![Codex](https://img.shields.io/badge/Codex-compatible-black.svg)](https://developers.openai.com/codex/)
 
-## Why
+An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **8 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
 
-AI agents produce Markdown constantly — reports, research digests, meeting notes. Getting that to another human usually means copy-pasting walls of text into a chat. sharedoc-mcp gives your agent 8 tools to publish, update, search, and revoke shareable documents, so "send this to my teammate" becomes a link.
+> When a backend can't honor a parameter (e.g. `password` on gist), it returns a clear error instead of silently ignoring it.
 
-## Two backends, one interface
+## Why?
 
-| | 🅰 `gist` (default) | 🅱 `selfhost` |
-|---|---|---|
-| Setup | none — uses your logged-in `gh` CLI | none extra — data stays on your machine |
-| Doc lives on | GitHub (secret gist) | your machine (SQLite) |
-| Link reachable | anywhere, immediately | localhost — add a tunnel to share externally |
-| Password | ✗ (the secret URL is the protection) | ✓ server-verified (bcrypt), rate-limited |
-| Expiry | lazy — expired gists are deleted on next use | enforced — expired links return 410 |
-| Revoke | gist deleted immediately, irreversibly | immediate 410, content purged after a 7-day grace |
-| File sharing | ✗ (gists are text-only) | ✓ (no password/expiry on files — link is the only protection) |
+AI agents produce Markdown constantly — reports, research digests, meeting notes. Getting that to another human usually means copy-pasting walls of text into a chat window.
 
-The 8 MCP tools are identical on both; when a backend can't honor a parameter (e.g. `password` on gist), it returns a clear error instead of silently ignoring it.
+```text
+Without sharedoc-mcp                  With sharedoc-mcp
+────────────────────                  ─────────────────
+copy a wall of text into chat         "share this as a doc"
+paste again for each person           one link for everyone
+content lives in chat scroll          revoke / extend / append later
+"can you password it?"  …no           selfhost backend: bcrypt + expiry
+```
+
+## Features
+
+- ✓ 8 MCP tools: create / append / extend / reset password / rename / revoke / search / share files
+- ✓ Two backends, one interface — switch with a single env var, tool schemas stay identical
+- ✓ **Gist backend** (default): secret gists via your logged-in `gh` CLI — no tokens to manage, nothing new to host
+- ✓ **Selfhost backend**: docs stay on your machine (SQLite via built-in `node:sqlite` — zero native modules)
+- ✓ Server-verified passwords (bcrypt) with rate-limited attempts — 5/minute, HTTP 429 (selfhost)
+- ✓ Enforced expiry (410) and revoke with a 7-day content-purge grace (selfhost); lazy expiry cleanup (gist)
+- ✓ Markdown rendered through `marked` + `sanitize-html` — scripts, event handlers, and `javascript:` URLs in shared content are stripped
+- ✓ Viewer binds **127.0.0.1 only** — public exposure is a tunnel you control (recipes below)
+- ✓ Local index for `search_shared_docs` + create dedup (identical unprotected retries within 5 min return the same URL; a retry that adds a password/expiry always creates a new doc)
+- ✓ File sharing on selfhost (link-only protection — see [Security](#security-semantics-honestly))
+- ✓ Two MCP clients can share one data dir: SQLite WAL + busy timeout, graceful port sharing
+- ✓ 52 offline tests; `npm test` passes on a clean checkout
 
 ## Install
 
-Requires Node.js ≥ 22.13.0. For the gist backend: [GitHub CLI](https://cli.github.com) logged in (`gh auth login`).
+Requires Node.js ≥ 22.13.0. Gist backend additionally needs [GitHub CLI](https://cli.github.com) logged in (`gh auth login`).
 
-**Claude Code:**
+**Option A — Claude Code (one line):**
 
 ```bash
 claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp
 ```
 
-**Codex CLI** (`~/.codex/config.toml`):
+**Option B — Codex CLI** (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.sharedoc]
@@ -42,27 +62,39 @@ command = "npx"
 args = ["-y", "sharedoc-mcp"]
 ```
 
-Any other MCP client: run `npx -y sharedoc-mcp` as a stdio server.
+**Option C — any other MCP client:** run `npx -y sharedoc-mcp` as a stdio server.
 
-## Quickstart (gist backend)
+## Pick your backend
 
-Ask your agent to "share this as a doc" — it calls `create_shared_doc` and returns a secret gist URL. Secret gists are not listed publicly and the URL is unguessable, but **anyone who has the link can read it**. That's the whole security model of this backend — use `selfhost` when you need passwords.
+| | 🅰 `gist` (default) | 🅱 `selfhost` |
+|---|---|---|
+| Setup | none — uses your logged-in `gh` CLI | none extra — data stays on your machine |
+| Doc lives on | GitHub (secret gist) | your machine (SQLite) |
+| Link reachable | anywhere, immediately | localhost — add a tunnel to share externally |
+| Password | ✗ (the secret URL is the protection) | ✓ server-verified (bcrypt), rate-limited |
+| Expiry | lazy — expired gists deleted on next use | enforced — expired links return 410 |
+| Revoke | gist deleted immediately, irreversibly | immediate 410, content purged after 7-day grace |
+| File sharing | ✗ (gists are text-only) | ✓ (link-only protection) |
 
-A local index (`~/.config/sharedoc-mcp/index.json`) tracks what you've shared, powering `search_shared_docs` and expiry cleanup. Expiry on this backend is *lazy*: expired gists are deleted the next time any tool runs, not at the exact expiry moment.
+### Gist quickstart
 
-## Selfhost backend
+Ask your agent to "share this as a doc" — it calls `create_shared_doc` and returns a secret gist URL. Secret gists are not listed publicly and the URL is unguessable, but **anyone who has the link can read it** — that's the whole security model of this backend. Need passwords? Use `selfhost`.
+
+A local index (`~/.config/sharedoc-mcp/index.json`) tracks what you've shared, powering search and expiry cleanup. Expiry here is *lazy*: expired gists are deleted the next time any tool runs, not at the exact expiry moment.
+
+### Selfhost quickstart
 
 ```bash
 claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y sharedoc-mcp
 ```
 
-Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `http://127.0.0.1:8377`. The server **only ever binds 127.0.0.1** — exposing it to the internet is deliberately left to a tunnel you control:
+Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `http://127.0.0.1:8377`. To share beyond your machine, put a tunnel in front and set `SHAREDOC_PUBLIC_URL`:
 
 | Recipe | Fits you if | Setup |
 |---|---|---|
-| **Tailscale Funnel** (recommended) | no domain, want a stable URL | install [Tailscale](https://tailscale.com), then `tailscale funnel 8377` → stable `https://<machine>.<tailnet>.ts.net`; set `SHAREDOC_PUBLIC_URL` to it |
-| **Cloudflare named tunnel** | you own a domain | add the domain to Cloudflare, `cloudflared tunnel create` + route a hostname to `http://127.0.0.1:8377`; set `SHAREDOC_PUBLIC_URL` |
-| **cloudflared quick tunnel** | one-off sharing | `cloudflared tunnel --url http://127.0.0.1:8377` → random `trycloudflare.com` URL that changes every restart; set `SHAREDOC_PUBLIC_URL` per session |
+| **Tailscale Funnel** (recommended) | no domain, want a stable URL | install [Tailscale](https://tailscale.com), `tailscale funnel 8377` → stable `https://<machine>.<tailnet>.ts.net` |
+| **Cloudflare named tunnel** | you own a domain | domain on Cloudflare, `cloudflared tunnel create` + route a hostname to `http://127.0.0.1:8377` |
+| **cloudflared quick tunnel** | one-off sharing | `cloudflared tunnel --url http://127.0.0.1:8377` → random URL, changes every restart |
 
 Environment variables:
 
@@ -70,30 +102,38 @@ Environment variables:
 |---|---|---|
 | `SHAREDOC_BACKEND` | `gist` | `gist` or `selfhost` |
 | `SHAREDOC_PORT` | `8377` | viewer port (selfhost) |
-| `SHAREDOC_PUBLIC_URL` | `http://127.0.0.1:<port>` | the URL prefix returned in share links — set it to your tunnel hostname |
+| `SHAREDOC_PUBLIC_URL` | `http://127.0.0.1:<port>` | URL prefix in share links — set to your tunnel hostname |
 | `SHAREDOC_DATA_DIR` | `~/.local/share/sharedoc-mcp` | SQLite + files location (selfhost) |
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | local index (gist) |
 | `MCP_CALLER` | — | default author attribution for created docs |
-
-### Security semantics, honestly
-
-- Passwords are bcrypt-hashed and verified server-side before content is served; wrong-password attempts are rate-limited (5/minute per source+doc, HTTP 429). **Behind a tunnel, all external visitors share one source address**, so the practical limit is 5/minute per doc — stricter than per-visitor, and one person mistyping can briefly lock a doc for others.
-- Document content is rendered through `marked` and sanitized with `sanitize-html` — scripts, event handlers, and `javascript:` URLs in shared content are stripped.
-- Shared **files** have no password or expiry: the unguessable link is the only protection, indefinitely, and downloads are not rate-limited.
-- Two MCP clients can point at the same data dir: SQLite runs in WAL mode with a busy timeout, and if the viewer port is already taken by another sharedoc-mcp instance the second client keeps its tools and relies on the existing viewer.
 
 ## The 8 tools
 
 | Tool | Does |
 |---|---|
-| `create_shared_doc` | title + Markdown (+ optional password / `expires_in_hours` / author) → share URL. Identical unprotected retries within 5 min return the same URL; a retry that adds a password or expiry always creates a new doc. |
+| `create_shared_doc` | title + Markdown (+ optional password / `expires_in_hours` / author) → share URL |
 | `create_shared_file` | share a local file (selfhost only) |
-| `append_to_shared_doc` | append Markdown to an existing doc (not idempotent — a retry appends twice) |
+| `append_to_shared_doc` | append Markdown (not idempotent — a retry appends twice) |
 | `extend_shared_doc` | extend expiry by N hours |
 | `reset_shared_doc_password` | set / change / remove (null) the password (selfhost only) |
 | `update_shared_doc_title` | rename |
 | `revoke_shared_doc` | kill the link (see backend table for semantics) |
 | `search_shared_docs` | title substring + status filter |
+
+## Privacy
+
+Data flow, by backend:
+
+- **Gist backend**: your document content is uploaded to GitHub as a secret gist under your account — GitHub's terms and retention apply. The local index (titles, URLs, timestamps — not content) stays in `~/.config/sharedoc-mcp/`. Nothing is sent anywhere except GitHub via your own `gh` CLI.
+- **Selfhost backend**: content never leaves your machine unless you attach a tunnel — then it's served to whoever you gave the link (and the tunnel provider relays the traffic). Passwords are stored only as bcrypt hashes.
+- sharedoc-mcp itself has no telemetry and calls no third-party service of its own.
+
+## Security semantics, honestly
+
+- **Gist links are bearer tokens**: anyone with the URL reads the doc. Revoke deletes the gist immediately and irreversibly.
+- Selfhost passwords are verified server-side before content is served; wrong attempts are rate-limited (5/minute per source+doc). **Behind a tunnel, all external visitors share one source address**, so the practical limit is 5/minute per doc — stricter than per-visitor; one person mistyping can briefly lock a doc for others.
+- Shared **files** have no password or expiry: the unguessable link is the only protection, indefinitely, and downloads are not rate-limited.
+- The viewer never binds beyond 127.0.0.1. Whether and how it reaches the internet is entirely your tunnel's configuration.
 
 ## Develop
 
@@ -104,7 +144,16 @@ npm install
 npm test        # builds, then runs 52 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
 ```
 
-Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + GitHub Release + npm. Your index, docs DB, and files all live outside the package — updating never touches them.
+Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp).
+**To get update notifications**: Watch this repo (Custom → Releases). `npx -y` fetches the latest published version on each cold run; your index, docs DB, and shared files all live outside the package — updating never touches them.
+
+## Status
+
+v1.0.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 52 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+
+- macOS (Apple Silicon), Node v25 — gist + selfhost backends
+
+Tunnel recipes are documented from the tools' standard behavior; Windows/Linux and real-tunnel end-to-end runs have **not yet been verified** — reports welcome.
 
 ## License
 
