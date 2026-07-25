@@ -5,6 +5,17 @@ All notable changes to this project are documented here. Every release bumps `ve
 
 ## [Unreleased] — 2.0.0 (in progress)
 
+### Added
+- **`sharedoc-mcp serve` daemon mode** — a standalone viewer process sharing the same
+  SQLite DB, so selfhost links keep working after the MCP client closes; MCP-mode
+  processes detect the daemon on the port and yield to it
+- **`delete_shared_doc`** — hard delete: link dies and the record disappears from
+  search (unlike `revoke_shared_doc`, which keeps history with a 7-day grace)
+- **Content search** — `search_shared_docs` gains `content_query` (selfhost: full
+  content; gist: the stored opening excerpt), and its description now advertises the
+  no-arguments list-newest-links usage
+- Startup warning when docs.db exceeds 100 MB
+
 ### Security (breaking)
 - **Removed `create_shared_file`** (7 tools now): an arbitrary-path file-sharing tool is a
   prompt-injection exfiltration vector (`.env`, keys) — removed rather than allowlisted.

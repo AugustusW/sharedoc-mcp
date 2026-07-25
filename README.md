@@ -12,7 +12,7 @@ English | [繁體中文](./README.zh-TW.md)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-orange.svg)](https://claude.com/claude-code)
 [![Codex](https://img.shields.io/badge/Codex-compatible-black.svg)](https://developers.openai.com/codex/)
 
-An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **7 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
+An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **8 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
 
 > When a backend can't honor a parameter (e.g. `password` on gist), it returns a clear error instead of silently ignoring it.
 
@@ -31,7 +31,9 @@ content lives in chat scroll          revoke / extend / append later
 
 ## Features
 
-- ✓ 7 MCP tools: create / append / extend / reset password / rename / revoke / search
+- ✓ 8 MCP tools: create / append / extend / reset password / rename / revoke / delete / search
+- ✓ `sharedoc-mcp serve` daemon mode — selfhost links keep working after your MCP client closes
+- ✓ Content search: find old share links by what's in them, not just the title
 - ✓ Two backends, one interface — switch with a single env var, tool schemas stay identical
 - ✓ **Gist backend** (default): secret gists via your logged-in `gh` CLI — no tokens to manage, nothing new to host
 - ✓ **Selfhost backend**: docs stay on your machine (SQLite via built-in `node:sqlite` — zero native modules)
@@ -41,7 +43,7 @@ content lives in chat scroll          revoke / extend / append later
 - ✓ Viewer binds **127.0.0.1 only**, answers with a strict security-header set (CSP `default-src 'none'`, nosniff, DENY framing, no-referrer, no-store) — exposure is a tunnel you control (recipes below)
 - ✓ Local index for `search_shared_docs` + create dedup (identical unprotected retries within 5 min return the same URL; a retry that adds a password/expiry always creates a new doc)
 - ✓ Two MCP clients can share one data dir: SQLite WAL + busy timeout, graceful port sharing
-- ✓ 51 offline tests; `npm test` passes on a clean checkout
+- ✓ 60 offline tests; `npm test` passes on a clean checkout
 
 ## Install
 
@@ -87,6 +89,14 @@ claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y s
 ```
 
 Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `http://127.0.0.1:8377`. To share beyond your machine, put a tunnel in front and set `SHAREDOC_PUBLIC_URL`:
+
+> **Links that outlive your editor:** in MCP mode the viewer dies with the MCP client — close Claude Code and selfhost links stop answering until the next session (data is safe in SQLite). Run the standalone daemon to keep links alive around the clock:
+>
+> ```bash
+> npx -y sharedoc-mcp serve   # viewer only, same DB — keep it running via launchd/systemd/tmux
+> ```
+>
+> MCP clients detect the daemon already owns the port and simply use it.
 
 | Recipe | Fits you if | Setup |
 |---|---|---|
@@ -141,7 +151,7 @@ Environment variables:
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | local index (gist) |
 | `MCP_CALLER` | — | default author attribution for created docs |
 
-## The 7 tools
+## The 8 tools
 
 | Tool | Does |
 |---|---|
@@ -150,8 +160,9 @@ Environment variables:
 | `extend_shared_doc` | extend expiry by N hours |
 | `reset_shared_doc_password` | set / change / remove (null) the password (selfhost only) |
 | `update_shared_doc_title` | rename |
-| `revoke_shared_doc` | kill the link (see backend table for semantics) |
-| `search_shared_docs` | title substring + status filter |
+| `revoke_shared_doc` | kill the link, keep the record (see backend table for semantics) |
+| `delete_shared_doc` | kill the link AND erase the record — irreversible |
+| `search_shared_docs` | no args = list newest links; title substring, body-text search (selfhost: full content; gist: opening excerpt), status filter |
 
 ## Privacy
 
@@ -174,7 +185,7 @@ Data flow, by backend:
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # builds, then runs 51 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
+npm test        # builds, then runs 60 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
 ```
 
 Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp).
@@ -182,7 +193,7 @@ Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](
 
 ## Status
 
-v1.0.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 51 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+v1.0.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 60 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
 
 - macOS (Apple Silicon), Node v25 — gist + selfhost backends
 

@@ -86,6 +86,33 @@ describe('stdio smoke (built dist)', () => {
     expect((JSON.parse(toolsLine).result.tools as { name: string }[]).length).toBe(8);
   }, 15_000);
 
+  it('`serve` daemon mode: viewer stays alive after stdin closes, stops on SIGTERM', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'sd-smoke-serve-'));
+    const child = spawn('node', ['dist/index.js', 'serve'], {
+      env: { ...process.env, SHAREDOC_DATA_DIR: dataDir, SHAREDOC_PORT: '0' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let err = '';
+    child.stderr.on('data', d => { err += d; });
+    await new Promise(r => setTimeout(r, 800));
+    const m = err.match(/listening on 127\.0\.0\.1:(\d+)/);
+    expect(m).toBeTruthy();
+    const port = m![1];
+
+    child.stdin.end(); // daemon mode must SURVIVE stdin closing (unlike MCP mode)
+    await new Promise(r => setTimeout(r, 800));
+    const res = await fetch(`http://127.0.0.1:${port}/docs/3f2a8c1e-1111-2222-3333-444455556666`);
+    expect(res.status).toBe(404); // still serving
+
+    child.kill('SIGTERM');
+    const exited = await Promise.race([
+      once(child, 'exit').then(() => true),
+      new Promise<false>(r => setTimeout(() => r(false), 3000)),
+    ]);
+    if (!exited) child.kill('SIGKILL');
+    expect(exited).toBe(true);
+  }, 15_000);
+
   it('selfhost server exits when the MCP client closes stdin (no orphan holding the port)', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'sd-smoke-exit-'));
     const child = spawn('node', ['dist/index.js'], {
