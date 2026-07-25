@@ -1,9 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import bcrypt from 'bcryptjs';
-import { slugify } from './gist.js';
 import {
   BackendError, type BackendCapabilities, type CreateDocParams,
   type DocRecord, type SearchParams, type ShareBackend,
@@ -14,25 +13,21 @@ const GRACE_MS = 7 * 24 * 3600e3;
 
 export interface SelfHostOpts {
   dbPath: string;
-  filesDir: string;
   publicUrl: string;
   now?: () => Date;
 }
 
 export class SelfHostBackend implements ShareBackend {
   readonly dbPath: string;
-  readonly filesDir: string;
   private db: DatabaseSync;
   private publicUrl: string;
   private now: () => Date;
 
   constructor(opts: SelfHostOpts) {
     this.dbPath = opts.dbPath;
-    this.filesDir = opts.filesDir;
     this.publicUrl = opts.publicUrl.replace(/\/$/, '');
     this.now = opts.now ?? (() => new Date());
     mkdirSync(dirname(this.dbPath), { recursive: true });
-    mkdirSync(this.filesDir, { recursive: true });
     this.db = new DatabaseSync(this.dbPath);
     // Two MCP clients may share this DB file: WAL + busy_timeout turn lock
     // contention into short waits instead of instant "database is locked" errors.
@@ -56,6 +51,12 @@ export class SelfHostBackend implements ShareBackend {
         contentType TEXT, createdAt TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_docs_status ON docs(status);`,
+      // v2.0.0: file sharing removed (prompt-injection exfiltration vector);
+      // rate-limit state moves into SQLite so a restart can't reset counters.
+      `DROP TABLE IF EXISTS files;
+      CREATE TABLE IF NOT EXISTS rateLimits (
+        key TEXT PRIMARY KEY, windowStart INTEGER NOT NULL, count INTEGER NOT NULL
+      );`,
     ];
     const current = (this.db.prepare(`PRAGMA user_version`).get() as { user_version: number }).user_version;
     for (let v = current; v < migrations.length; v++) {
@@ -65,7 +66,28 @@ export class SelfHostBackend implements ShareBackend {
   }
 
   capabilities(): BackendCapabilities {
-    return { password: 'server', expiry: 'enforced', files: true, revoke: 'grace' };
+    return { password: 'server', expiry: 'enforced', revoke: 'grace' };
+  }
+
+  /** SQLite-backed fixed-window rate limiter — counters survive restarts. */
+  rateAllow(key: string, capacity = 5, windowMs = 60_000): boolean {
+    const t = this.now().getTime();
+    this.db.prepare(`DELETE FROM rateLimits WHERE windowStart < ?`).run(t - windowMs);
+    const row = this.db.prepare(`SELECT windowStart, count FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number; count: number } | undefined;
+    if (!row || t - row.windowStart >= windowMs) {
+      this.db.prepare(`INSERT INTO rateLimits (key, windowStart, count) VALUES (?, ?, 1)
+        ON CONFLICT(key) DO UPDATE SET windowStart = excluded.windowStart, count = 1`).run(key, t);
+      return true;
+    }
+    if (row.count >= capacity) return false;
+    this.db.prepare(`UPDATE rateLimits SET count = count + 1 WHERE key = ?`).run(key);
+    return true;
+  }
+
+  rateRetryAfterSeconds(key: string, windowMs = 60_000): number {
+    const row = this.db.prepare(`SELECT windowStart FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number } | undefined;
+    if (!row) return 0;
+    return Math.max(1, Math.ceil((row.windowStart + windowMs - this.now().getTime()) / 1000));
   }
 
   /** Rebind the public URL after an ephemeral port resolves (SHAREDOC_PORT=0). */
@@ -90,11 +112,6 @@ export class SelfHostBackend implements ShareBackend {
   docRow(docId: string): { title: string; content: string | null; passwordHash: string | null; status: string; expiresAt: string | null } | undefined {
     this.housekeeping();
     const r = this.db.prepare(`SELECT title, content, passwordHash, status, expiresAt FROM docs WHERE docId = ?`).get(docId) as never;
-    return r ?? undefined;
-  }
-
-  fileRow(key: string): { path: string; filename: string; contentType: string | null } | undefined {
-    const r = this.db.prepare(`SELECT path, filename, contentType FROM files WHERE key = ?`).get(key) as never;
     return r ?? undefined;
   }
 
@@ -127,17 +144,6 @@ export class SelfHostBackend implements ShareBackend {
       p.expiresInHours ? new Date(now.getTime() + p.expiresInHours * 3600e3).toISOString() : null,
     );
     return { url: `${this.publicUrl}/docs/${docId}` };
-  }
-
-  async createFile(p: { filePath: string; filename?: string; contentType?: string }): Promise<{ url: string }> {
-    if (!existsSync(p.filePath)) throw new BackendError(`file not found: ${p.filePath}`);
-    const filename = p.filename ?? basename(p.filePath);
-    const key = `${randomUUID()}-${slugify(filename)}`;
-    const dest = join(this.filesDir, key);
-    copyFileSync(p.filePath, dest);
-    this.db.prepare(`INSERT INTO files (key, path, filename, contentType, createdAt) VALUES (?, ?, ?, ?, ?)`).run(
-      key, dest, filename, p.contentType ?? null, this.now().toISOString());
-    return { url: `${this.publicUrl}/files/${key}` };
   }
 
   async appendDoc(docId: string, content: string): Promise<void> {

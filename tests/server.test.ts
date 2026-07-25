@@ -5,14 +5,13 @@ import { BackendError, type ShareBackend } from '../src/backend/types.js';
 function stubBackend(over: Partial<ShareBackend> = {}): ShareBackend {
   return {
     createDoc: async () => ({ url: 'https://gist.github.com/u/id1' }),
-    createFile: async () => ({ url: 'u' }),
     appendDoc: async () => {},
     extendDoc: async () => {},
     resetPassword: async () => {},
     updateTitle: async () => {},
     revokeDoc: async () => {},
     searchDocs: async () => [],
-    capabilities: () => ({ password: 'none', expiry: 'lazy', files: false, revoke: 'hard-delete' }),
+    capabilities: () => ({ password: 'none', expiry: 'lazy', revoke: 'hard-delete' }),
     ...over,
   };
 }
@@ -58,10 +57,10 @@ describe('tool handlers', () => {
     expect(r.error).toMatch(/status/);
   });
 
-  it('all 8 tools exist', () => {
+  it('all 7 tools exist (create_shared_file removed for security — no path allowlist)', () => {
     const h = buildToolHandlers(stubBackend());
     expect(Object.keys(h).sort()).toEqual([
-      'append_to_shared_doc', 'create_shared_doc', 'create_shared_file',
+      'append_to_shared_doc', 'create_shared_doc',
       'extend_shared_doc', 'reset_shared_doc_password', 'revoke_shared_doc',
       'search_shared_docs', 'update_shared_doc_title',
     ]);

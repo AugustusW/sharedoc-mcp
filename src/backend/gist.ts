@@ -38,7 +38,7 @@ export class GistBackend implements ShareBackend {
   ) {}
 
   capabilities(): BackendCapabilities {
-    return { password: 'none', expiry: 'lazy', files: false, revoke: 'hard-delete' };
+    return { password: 'none', expiry: 'lazy', revoke: 'hard-delete' };
   }
 
   private async gh(args: string[], input?: string): Promise<string> {
@@ -89,10 +89,6 @@ export class GistBackend implements ShareBackend {
       contentHash: hash, filename,
     });
     return { url };
-  }
-
-  async createFile(): Promise<{ url: string }> {
-    throw new BackendError('The gist backend cannot share files (gists are text-only). Switch to the selfhost backend for file sharing.');
   }
 
   private mustGet(docId: string) {

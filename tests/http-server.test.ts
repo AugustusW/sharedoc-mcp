@@ -1,27 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SelfHostBackend } from '../src/backend/selfhost.js';
-import { TokenBucket } from '../src/viewer/rate-limit.js';
 import { startViewer } from '../src/viewer/http-server.js';
-
-const T0 = new Date('2026-07-25T10:00:00Z');
-
-describe('TokenBucket', () => {
-  it('allows 5 per minute per key, refills after window', () => {
-    const b = new TokenBucket(5, 60_000);
-    for (let i = 0; i < 5; i++) expect(b.allow('k', T0)).toBe(true);
-    expect(b.allow('k', T0)).toBe(false);
-    expect(b.allow('other', T0)).toBe(true);
-    expect(b.allow('k', new Date(T0.getTime() + 61_000))).toBe(true);
-  });
-});
 
 describe('HTTP viewer', () => {
   const dir = mkdtempSync(join(tmpdir(), 'sdv-'));
   const backend = new SelfHostBackend({
-    dbPath: join(dir, 'docs.db'), filesDir: join(dir, 'files'),
+    dbPath: join(dir, 'docs.db'),
     publicUrl: 'http://127.0.0.1:8377',
   });
   let base = '';
@@ -87,36 +74,21 @@ describe('HTTP viewer', () => {
     expect((await fetch(`${base}/docs/${id}`)).status).toBe(410);
   });
 
-  it('serves shared files with original filename', async () => {
-    const src = join(dir, 'up.txt');
-    writeFileSync(src, 'file-content');
-    const { url } = await backend.createFile({ filePath: src });
-    const key = url.split('/files/').pop()!;
-    const res = await fetch(`${base}/files/${key}`);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe('file-content');
-    expect(res.headers.get('content-disposition')).toContain('up.txt');
+  it('/files/ routes are gone (feature removed): 404', async () => {
+    expect((await fetch(`${base}/files/anything`)).status).toBe(404);
   });
 
-  it('non-ASCII filename downloads via RFC 5987 (no 500)', async () => {
-    const src = join(dir, 'zh.md');
-    writeFileSync(src, 'zh-content');
-    const { url } = await backend.createFile({ filePath: src, filename: '週報.md' });
-    const res = await fetch(`${base}/files/${url.split('/files/').pop()!}`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-disposition')).toContain(`filename*=UTF-8''`);
-  });
-
-  it('missing file on disk → 404, and the server survives (no process crash)', async () => {
-    const src = join(dir, 'gone.txt');
-    writeFileSync(src, 'x');
-    const { url } = await backend.createFile({ filePath: src });
-    const key = url.split('/files/').pop()!;
-    rmSync(backend.fileRow(key)!.path); // file vanishes after registration
-    const res = await fetch(`${base}/files/${key}`);
-    expect(res.status).toBe(404);
-    // server must still answer afterwards — the old code died on the stream error
-    const again = await fetch(`${base}/docs/3f2a8c1e-1111-2222-3333-444455556666`);
-    expect(again.status).toBe(404);
+  it('every response carries the security header set', async () => {
+    const id = await createId({ title: 'H', content: 'x' });
+    for (const res of [
+      await fetch(`${base}/docs/${id}`),
+      await fetch(`${base}/docs/3f2a8c1e-1111-2222-3333-444455556666`), // 404 path too
+    ]) {
+      expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(res.headers.get('content-security-policy')).toContain("default-src 'none'");
+    }
   });
 });

@@ -36,11 +36,6 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       expiresInHours: (a.expires_in_hours as number | undefined) ?? null,
       author: (a.author as string | undefined) || process.env.MCP_CALLER || 'Claude Code Main',
     })),
-    create_shared_file: wrap(async a => backend.createFile({
-      filePath: String(a.file_path),
-      filename: a.filename as string | undefined,
-      contentType: a.content_type as string | undefined,
-    })),
     append_to_shared_doc: wrap(async a => {
       const id = extractDocId(String(a.doc_id_or_url));
       await backend.appendDoc(id, String(a.content), caller(a.updated_user as string));
@@ -92,10 +87,8 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
       expires_in_hours: z.number().optional(), author: optStr,
     },
   },
-  create_shared_file: {
-    description: 'Share a local file. Only supported on the selfhost backend (gists are text-only). Note: file links have no password or expiry — anyone with the (unguessable) link can download, indefinitely.',
-    inputSchema: { file_path: z.string(), filename: optStr, content_type: optStr },
-  },
+  // create_shared_file was removed in v2.0.0: an arbitrary-path file-sharing tool is
+  // a prompt-injection exfiltration vector (.env, keys) — no allowlist, no tool.
   append_to_shared_doc: {
     description: 'Append content to an existing shared doc. NOT idempotent: a retry appends twice — check with search_shared_docs before retrying. Accepts a doc id or URL.',
     inputSchema: { doc_id_or_url: z.string(), content: z.string(), updated_user: optStr },

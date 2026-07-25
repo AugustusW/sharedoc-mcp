@@ -28,16 +28,17 @@ export interface SearchParams {
 export interface BackendCapabilities {
   password: 'server' | 'none';
   expiry: 'enforced' | 'lazy';
-  files: boolean;
   revoke: 'grace' | 'hard-delete';
 }
 
 /** Error whose message is safe and useful to surface to the MCP client. */
 export class BackendError extends Error {}
 
+// NOTE: no file-sharing method by design. An arbitrary-path "share this file" tool
+// is a prompt-injection exfiltration vector (.env, keys) with no allowlist to hide
+// behind — removed in v2.0.0.
 export interface ShareBackend {
   createDoc(p: CreateDocParams): Promise<{ url: string }>;
-  createFile(p: { filePath: string; filename?: string; contentType?: string }): Promise<{ url: string }>;
   appendDoc(docId: string, content: string, updatedUser?: string): Promise<void>;
   extendDoc(docId: string, hours: number): Promise<void>;
   resetPassword(docId: string, newPassword: string | null, updatedUser?: string): Promise<void>;

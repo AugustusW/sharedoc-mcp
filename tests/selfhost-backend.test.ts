@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import bcrypt from 'bcryptjs';
@@ -12,7 +12,7 @@ const URL_RE = /^http:\/\/127\.0\.0\.1:8377\/docs\/[0-9a-f-]{36}$/;
 function makeBackend(now: Date = T0) {
   const dir = mkdtempSync(join(tmpdir(), 'sdh-'));
   const backend = new SelfHostBackend({
-    dbPath: join(dir, 'docs.db'), filesDir: join(dir, 'files'),
+    dbPath: join(dir, 'docs.db'),
     publicUrl: 'http://127.0.0.1:8377', now: () => now,
   });
   return { dir, backend };
@@ -58,7 +58,7 @@ describe('SelfHostBackend.createDoc', () => {
   it('capabilities: full semantics', () => {
     const { backend } = makeBackend();
     expect(backend.capabilities()).toEqual(
-      { password: 'server', expiry: 'enforced', files: true, revoke: 'grace' });
+      { password: 'server', expiry: 'enforced', revoke: 'grace' });
   });
 });
 
@@ -96,7 +96,7 @@ describe('SelfHostBackend doc ops', () => {
     // 8 days later: any op triggers purge
     const eightDays = new Date(T0.getTime() + 8 * 24 * 3600e3);
     const later = new SelfHostBackend({
-      dbPath: backend.dbPath, filesDir: backend.filesDir,
+      dbPath: backend.dbPath,
       publicUrl: 'http://127.0.0.1:8377', now: () => eightDays,
     });
     await later.searchDocs({});
@@ -108,7 +108,7 @@ describe('SelfHostBackend doc ops', () => {
     const { backend } = makeBackend();
     const id = (await backend.createDoc({ title: 'T', content: 'c', expiresInHours: 1 })).url.split('/').pop()!;
     const later = new SelfHostBackend({
-      dbPath: backend.dbPath, filesDir: backend.filesDir,
+      dbPath: backend.dbPath,
       publicUrl: 'http://127.0.0.1:8377', now: () => new Date(T0.getTime() + 2 * 3600e3),
     });
     expect(later.docRow(id)!.status).toBe('expired');
@@ -125,21 +125,32 @@ describe('SelfHostBackend doc ops', () => {
   });
 });
 
-describe('SelfHostBackend.createFile', () => {
-  it('copies the file into filesDir and returns a /files/ URL', async () => {
-    const { dir, backend } = makeBackend();
-    const src = join(dir, 'up.txt');
-    writeFileSync(src, 'file-content');
-    const { url } = await backend.createFile({ filePath: src });
-    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:8377\/files\//);
-    const key = url.split('/files/').pop()!;
-    const f = backend.fileRow(key)!;
-    expect(f.filename).toBe('up.txt');
-    expect(existsSync(f.path)).toBe(true);
+describe('SelfHostBackend rate limiter (SQLite-backed)', () => {
+  it('allows 5 per window per key, then blocks', () => {
+    const { backend } = makeBackend();
+    for (let i = 0; i < 5; i++) expect(backend.rateAllow('k')).toBe(true);
+    expect(backend.rateAllow('k')).toBe(false);
+    expect(backend.rateAllow('other')).toBe(true);
+    expect(backend.rateRetryAfterSeconds('k')).toBeGreaterThan(0);
   });
 
-  it('missing source file rejects', async () => {
+  it('state survives a restart (persisted in SQLite)', () => {
     const { backend } = makeBackend();
-    await expect(backend.createFile({ filePath: '/nope/x.txt' })).rejects.toThrow(BackendError);
+    for (let i = 0; i < 5; i++) backend.rateAllow('k');
+    const reborn = new SelfHostBackend({
+      dbPath: backend.dbPath,
+      publicUrl: 'http://127.0.0.1:8377', now: () => T0,
+    });
+    expect(reborn.rateAllow('k')).toBe(false); // restart must NOT reset the counter
+  });
+
+  it('window refill after 61s', () => {
+    const { backend } = makeBackend();
+    for (let i = 0; i < 6; i++) backend.rateAllow('k');
+    const later = new SelfHostBackend({
+      dbPath: backend.dbPath,
+      publicUrl: 'http://127.0.0.1:8377', now: () => new Date(T0.getTime() + 61_000),
+    });
+    expect(later.rateAllow('k')).toBe(true);
   });
 });

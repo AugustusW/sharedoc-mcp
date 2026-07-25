@@ -1,10 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createReadStream } from 'node:fs';
 import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import bcrypt from 'bcryptjs';
 import type { SelfHostBackend } from '../backend/selfhost.js';
-import { TokenBucket } from './rate-limit.js';
 
 const PAGE = (title: string, body: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,6 +12,21 @@ const PAGE = (title: string, body: string) => `<!doctype html>
 pre{overflow-x:auto;background:#f6f6f6;padding:.8rem}code{background:#f6f6f6}
 input[type=password]{padding:.4rem;font-size:1rem}button{padding:.4rem 1rem;font-size:1rem}</style>
 </head><body>${body}</body></html>`;
+
+/** Applied to every response — docs may hold sensitive content; lock the page down. */
+const SEC_HEADERS: Record<string, string> = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'cache-control': 'no-store',
+  'content-security-policy':
+    "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+};
+
+function head(res: ServerResponse, status: number, extra: Record<string, string> = {}): ServerResponse {
+  res.writeHead(status, { ...SEC_HEADERS, ...extra });
+  return res;
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -57,36 +70,31 @@ export async function startViewer(
   backend: SelfHostBackend,
   opts: { port: number; now?: () => Date },
 ): Promise<{ port: number; close(): Promise<void> }> {
-  const now = opts.now ?? (() => new Date());
-  const bucket = new TokenBucket(5, 60_000);
-
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const docMatch = url.pathname.match(/^\/docs\/([0-9a-f-]{36})$/);
-    const fileMatch = url.pathname.match(/^\/files\/([A-Za-z0-9._-]+)$/);
 
     if (docMatch) {
       const docId = docMatch[1];
       const row = backend.docRow(docId);
-      if (!row) { res.writeHead(404, { 'content-type': 'text/plain' }).end('not found'); return; }
+      if (!row) { head(res, 404, { 'content-type': 'text/plain' }).end('not found'); return; }
       if (row.status !== 'active' || row.content === null) {
-        res.writeHead(410, { 'content-type': 'text/plain' }).end('gone'); return;
+        head(res, 410, { 'content-type': 'text/plain' }).end('gone'); return;
       }
       const html = { 'content-type': 'text/html; charset=utf-8' };
 
       if (req.method === 'GET') {
-        if (row.passwordHash) { res.writeHead(200, html).end(passwordForm(docId)); return; }
-        res.writeHead(200, html).end(renderDoc(row.title, row.content));
+        if (row.passwordHash) { head(res, 200, html).end(passwordForm(docId)); return; }
+        head(res, 200, html).end(renderDoc(row.title, row.content));
         return;
       }
       if (req.method === 'POST') {
-        // NOTE: behind a tunnel (Tailscale funnel / cloudflared) remoteAddress is the
-        // tunnel's loopback for ALL external requesters, so this bucket is effectively
-        // per-doc, not per-attacker — stricter than intended, never weaker. Documented
-        // in the README rather than trusting X-Forwarded-For (spoofable).
+        // NOTE: behind a tunnel, remoteAddress is the tunnel's loopback for ALL
+        // external requesters — the bucket degrades to per-doc, which is stricter,
+        // never weaker. Counters live in SQLite, so a restart doesn't reset them.
         const key = `${req.socket.remoteAddress}:${docId}`;
-        if (!bucket.allow(key, now())) {
-          res.writeHead(429, { 'content-type': 'text/plain', 'retry-after': String(bucket.retryAfterSeconds(key, now())) })
+        if (!backend.rateAllow(key)) {
+          head(res, 429, { 'content-type': 'text/plain', 'retry-after': String(backend.rateRetryAfterSeconds(key)) })
             .end('too many attempts');
           return;
         }
@@ -94,52 +102,28 @@ export async function startViewer(
         try {
           body = await readBody(req);
         } catch {
-          res.writeHead(413, { 'content-type': 'text/plain' }).end('payload too large');
+          head(res, 413, { 'content-type': 'text/plain' }).end('payload too large');
           return;
         }
         const password = new URLSearchParams(body).get('password') ?? '';
         if (!row.passwordHash || bcrypt.compareSync(password, row.passwordHash)) {
-          res.writeHead(200, html).end(renderDoc(row.title, row.content));
+          head(res, 200, html).end(renderDoc(row.title, row.content));
         } else {
-          res.writeHead(401, html).end(passwordForm(docId, true));
+          head(res, 401, html).end(passwordForm(docId, true));
         }
         return;
       }
-      res.writeHead(405).end();
+      head(res, 405).end();
       return;
     }
 
-    if (fileMatch && req.method === 'GET') {
-      const f = backend.fileRow(fileMatch[1]);
-      if (!f) { res.writeHead(404, { 'content-type': 'text/plain' }).end('not found'); return; }
-      // RFC 5987/6266: non-ASCII filenames go in filename*; the quoted filename is an
-      // ASCII fallback with CR/LF and quotes stripped (Node throws on non-ASCII header values).
-      const ascii = f.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\r\n]/g, '');
-      const star = encodeURIComponent(f.filename).replace(/['()]/g, escape);
-      const stream = createReadStream(f.path);
-      // A stream 'error' fires outside route()'s stack — without this handler a single
-      // GET for a row whose file vanished from disk would crash the whole process.
-      stream.on('error', () => {
-        if (!res.headersSent) res.writeHead(404, { 'content-type': 'text/plain' });
-        res.end('file missing');
-      });
-      stream.once('open', () => {
-        res.writeHead(200, {
-          'content-type': (f.contentType ?? 'application/octet-stream').replace(/[\r\n]/g, ''),
-          'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${star}`,
-        });
-        stream.pipe(res);
-      });
-      return;
-    }
-
-    res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
+    head(res, 404, { 'content-type': 'text/plain' }).end('not found');
   }
 
   const server = createServer((req, res) => {
     route(req, res).catch(e => {
       console.error('sharedoc-mcp viewer:', e);
-      if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });
+      if (!res.headersSent) head(res, 500, { 'content-type': 'text/plain' });
       res.end('internal error');
     });
   });

@@ -22,7 +22,6 @@ async function makeBackend(): Promise<ShareBackend> {
     const port = Number(process.env.SHAREDOC_PORT ?? 8377);
     const backend = new SelfHostBackend({
       dbPath: join(dataDir, 'docs.db'),
-      filesDir: join(dataDir, 'files'),
       publicUrl: process.env.SHAREDOC_PUBLIC_URL ?? `http://127.0.0.1:${port}`,
     });
     try {

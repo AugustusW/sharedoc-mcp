@@ -75,10 +75,9 @@ describe('slugify', () => {
   });
 });
 
-describe('GistBackend.createFile / resetPassword', () => {
-  it('both reject with BackendError (unsupported on gist)', async () => {
+describe('GistBackend.resetPassword', () => {
+  it('rejects with BackendError (unsupported on gist)', async () => {
     const { backend } = makeBackend(makeFake({}));
-    await expect(backend.createFile({ filePath: '/tmp/x.png' })).rejects.toThrow(BackendError);
     await expect(backend.resetPassword('id', 'new')).rejects.toThrow(BackendError);
   });
 });
@@ -150,7 +149,7 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
   it('capabilities reflect gist semantics', () => {
     const { backend } = makeBackend(makeFake({}));
     expect(backend.capabilities()).toEqual(
-      { password: 'none', expiry: 'lazy', files: false, revoke: 'hard-delete' });
+      { password: 'none', expiry: 'lazy', revoke: 'hard-delete' });
   });
 
   it('searchDocs returns DocRecord shape only (no internal fields)', async () => {
