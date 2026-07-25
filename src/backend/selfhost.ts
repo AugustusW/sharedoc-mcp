@@ -69,19 +69,32 @@ export class SelfHostBackend implements ShareBackend {
     return { password: 'server', expiry: 'enforced', revoke: 'grace' };
   }
 
-  /** SQLite-backed fixed-window rate limiter — counters survive restarts. */
+  /** SQLite-backed fixed-window rate limiter — counters survive restarts.
+   *  BEGIN IMMEDIATE serializes the check-then-act across PROCESSES (two viewers
+   *  can genuinely run concurrently with SHAREDOC_PORT=0) — review I1. */
   rateAllow(key: string, capacity = 5, windowMs = 60_000): boolean {
     const t = this.now().getTime();
-    this.db.prepare(`DELETE FROM rateLimits WHERE windowStart < ?`).run(t - windowMs);
-    const row = this.db.prepare(`SELECT windowStart, count FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number; count: number } | undefined;
-    if (!row || t - row.windowStart >= windowMs) {
-      this.db.prepare(`INSERT INTO rateLimits (key, windowStart, count) VALUES (?, ?, 1)
-        ON CONFLICT(key) DO UPDATE SET windowStart = excluded.windowStart, count = 1`).run(key, t);
-      return true;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(`DELETE FROM rateLimits WHERE windowStart < ?`).run(t - windowMs);
+      const row = this.db.prepare(`SELECT windowStart, count FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number; count: number } | undefined;
+      let allowed: boolean;
+      if (!row || t - row.windowStart >= windowMs) {
+        this.db.prepare(`INSERT INTO rateLimits (key, windowStart, count) VALUES (?, ?, 1)
+          ON CONFLICT(key) DO UPDATE SET windowStart = excluded.windowStart, count = 1`).run(key, t);
+        allowed = true;
+      } else if (row.count >= capacity) {
+        allowed = false;
+      } else {
+        this.db.prepare(`UPDATE rateLimits SET count = count + 1 WHERE key = ?`).run(key);
+        allowed = true;
+      }
+      this.db.exec('COMMIT');
+      return allowed;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
     }
-    if (row.count >= capacity) return false;
-    this.db.prepare(`UPDATE rateLimits SET count = count + 1 WHERE key = ?`).run(key);
-    return true;
   }
 
   rateRetryAfterSeconds(key: string, windowMs = 60_000): number {

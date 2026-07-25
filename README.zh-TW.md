@@ -34,6 +34,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 - ✓ 8 個 MCP 工具：建立／追加／延長／改密碼／改標題／撤銷／刪除／搜尋
 - ✓ `sharedoc-mcp serve` daemon 模式——MCP client 關掉後 selfhost 連結照樣活著
 - ✓ 內容搜尋：用文件裡寫了什麼找回舊連結，不只靠標題
+- ✓ `GET /healthz`——帶身分識別的健檢端點，外部監控／自動重啟直接掛
 - ✓ 兩個後端、同一組介面——一個環境變數切換，工具 schema 完全相同
 - ✓ **Gist 後端**（預設）：secret gist 走你已登入的 `gh` CLI——不用管 token、不用架任何東西
 - ✓ **Selfhost 後端**：文件留在你機器上（內建 `node:sqlite`——零原生模組）

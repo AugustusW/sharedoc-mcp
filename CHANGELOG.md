@@ -14,10 +14,16 @@ All notable changes to this project are documented here. Every release bumps `ve
 - **Content search** — `search_shared_docs` gains `content_query` (selfhost: full
   content; gist: the stored opening excerpt), and its description now advertises the
   no-arguments list-newest-links usage
-- Startup warning when docs.db exceeds 100 MB
+- **`GET /healthz`** — health + identity probe (`{ok, server, db}` with a non-reversible
+  DB fingerprint): hook it into external monitoring, and MCP-mode processes use it to
+  verify a busy port really is a sharedoc-mcp viewer on the same database before
+  trusting it (a mismatch now logs a loud broken-links warning instead of silently
+  minting dead URLs)
+- Startup warning when docs.db exceeds 100 MB, and a note when the removed v1
+  file-sharing feature left an orphaned `files/` directory behind
 
 ### Security (breaking)
-- **Removed `create_shared_file`** (7 tools now): an arbitrary-path file-sharing tool is a
+- **Removed `create_shared_file`**: an arbitrary-path file-sharing tool is a
   prompt-injection exfiltration vector (`.env`, keys) — removed rather than allowlisted.
   The selfhost `files` table and `/files/` routes are gone (migration 2 drops the table).
 - **Rate-limit counters persisted in SQLite** — restarting the server no longer resets

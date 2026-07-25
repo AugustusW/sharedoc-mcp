@@ -1,8 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createHash } from 'node:crypto';
 import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import bcrypt from 'bcryptjs';
 import type { SelfHostBackend } from '../backend/selfhost.js';
+
+/** Non-reversible identifier for "which DB is this viewer serving" — safe to expose. */
+export function dbFingerprint(dbPath: string): string {
+  return createHash('sha256').update(dbPath).digest('hex').slice(0, 8);
+}
 
 const PAGE = (title: string, body: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -72,6 +78,15 @@ export async function startViewer(
 ): Promise<{ port: number; close(): Promise<void> }> {
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
+
+    if (url.pathname === '/healthz' && req.method === 'GET') {
+      // Health + identity probe: external monitoring, and MCP-mode processes use it
+      // to verify a busy port is really OUR viewer on the SAME database (review I2).
+      head(res, 200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ ok: true, server: 'sharedoc-mcp', db: dbFingerprint(backend.dbPath) }));
+      return;
+    }
+
     const docMatch = url.pathname.match(/^\/docs\/([0-9a-f-]{36})$/);
 
     if (docMatch) {

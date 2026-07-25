@@ -162,6 +162,38 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     expect((await backend.searchDocs({})).length).toBe(0);
   });
 
+  it('deleteDoc: real gh failure propagates and KEEPS the index entry (no orphaned live gist)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { store, backend } = makeBackend(fake);
+    await backend.createDoc({ title: 't', content: 'c' });
+    fake.calls.length = 0;
+    const failing = makeFake({ 'gh gist delete': { exitCode: 1, stderr: 'HTTP 401: Bad credentials' } });
+    const b2 = new GistBackend(store, failing.run, () => T0);
+    await expect(b2.deleteDoc('f00dfeed')).rejects.toThrow(/401|failed/);
+    expect(store.get('f00dfeed')).toBeDefined(); // retryable — record kept
+  });
+
+  it('deleteDoc: "not found" from gh is swallowed and the index is cleaned', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { store, backend } = makeBackend(fake);
+    await backend.createDoc({ title: 't', content: 'c' });
+    const gone = makeFake({ 'gh gist delete': { exitCode: 1, stderr: 'not found' } });
+    const b2 = new GistBackend(store, gone.run, () => T0);
+    await b2.deleteDoc('f00dfeed');
+    expect(store.get('f00dfeed')).toBeUndefined();
+  });
+
+  it('append tops up a short excerpt so later content search can find it', async () => {
+    const fake = makeFake({
+      'gh gist create': `${GIST_URL}\n`,
+      'gh api gists/f00dfeed': JSON.stringify({ files: { 'stub.md': { content: 'x', truncated: false } } }),
+    });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'Stub', content: 'x' });
+    await backend.appendDoc('f00dfeed', ' appended-budget-notes');
+    expect((await backend.searchDocs({ contentQuery: 'appended-budget' })).length).toBe(1);
+  });
+
   it('deleteDoc on a revoked entry still cleans the index (gist already gone)', async () => {
     const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
     const { store, backend } = makeBackend(fake);

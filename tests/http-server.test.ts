@@ -78,6 +78,23 @@ describe('HTTP viewer', () => {
     expect((await fetch(`${base}/files/anything`)).status).toBe(404);
   });
 
+  it('/healthz reports identity + db fingerprint (with security headers)', async () => {
+    const res = await fetch(`${base}/healthz`);
+    expect(res.status).toBe(200);
+    const j = await res.json() as { ok: boolean; server: string; db: string };
+    expect(j.ok).toBe(true);
+    expect(j.server).toBe('sharedoc-mcp');
+    expect(j.db).toMatch(/^[0-9a-f]{8}$/);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('deleted doc → 404 end-to-end through the viewer', async () => {
+    const id = await createId({ title: 'D', content: 'x' });
+    expect((await fetch(`${base}/docs/${id}`)).status).toBe(200);
+    await backend.deleteDoc(id);
+    expect((await fetch(`${base}/docs/${id}`)).status).toBe(404);
+  });
+
   it('every response carries the security header set', async () => {
     const id = await createId({ title: 'H', content: 'x' });
     for (const res of [

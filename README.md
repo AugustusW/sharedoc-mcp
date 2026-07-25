@@ -34,6 +34,7 @@ content lives in chat scroll          revoke / extend / append later
 - ✓ 8 MCP tools: create / append / extend / reset password / rename / revoke / delete / search
 - ✓ `sharedoc-mcp serve` daemon mode — selfhost links keep working after your MCP client closes
 - ✓ Content search: find old share links by what's in them, not just the title
+- ✓ `GET /healthz` — identity-aware health probe for external monitoring / restart automation
 - ✓ Two backends, one interface — switch with a single env var, tool schemas stay identical
 - ✓ **Gist backend** (default): secret gists via your logged-in `gh` CLI — no tokens to manage, nothing new to host
 - ✓ **Selfhost backend**: docs stay on your machine (SQLite via built-in `node:sqlite` — zero native modules)

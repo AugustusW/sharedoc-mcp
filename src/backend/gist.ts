@@ -101,6 +101,11 @@ export class GistBackend implements ShareBackend {
   async appendDoc(docId: string, content: string): Promise<void> {
     await this.lazyCleanup();
     const e = this.mustGet(docId);
+    // Top up the searchable excerpt while it's short — docs created empty and
+    // filled by appends would otherwise never be findable via content search.
+    if ((e.excerpt ?? '').length < 200) {
+      this.store.update(docId, { excerpt: ((e.excerpt ?? '') + content).slice(0, 200) }, this.now());
+    }
     const filename = e.filename ?? `${slugify(e.title)}.md`;
     const raw = await this.gh(['api', `gists/${docId}`]);
     let file: { content?: string; truncated?: boolean } | undefined;
@@ -150,7 +155,12 @@ export class GistBackend implements ShareBackend {
     if (e.status === 'active') {
       try {
         await this.gh(['gist', 'delete', docId, '--yes']);
-      } catch { /* gist may already be gone — the index cleanup is the point */ }
+      } catch (err) {
+        // Only "already gone" may be swallowed. A real failure (auth, network)
+        // must propagate and LEAVE the index entry — otherwise a live public
+        // gist would be orphaned while the tool reports success (review C1).
+        if (!/not found|404|no such gist/i.test((err as Error).message)) throw err;
+      }
     }
     this.store.remove(docId);
   }
