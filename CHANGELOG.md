@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
-## [Unreleased] — 2.0.0 (in progress)
+## [2.0.0] - 2026-07-25
 
 ### Added
 - **`sharedoc-mcp serve` daemon mode** — a standalone viewer process sharing the same

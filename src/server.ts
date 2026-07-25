@@ -131,7 +131,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
 };
 
 export function buildServer(backend: ShareBackend): McpServer {
-  const server = new McpServer({ name: 'sharedoc', version: '1.0.0' });
+  const server = new McpServer({ name: 'sharedoc', version: '2.0.0' });
   const handlers = buildToolHandlers(backend);
   for (const [name, meta] of Object.entries(TOOL_SCHEMAS)) {
     server.registerTool(name, meta, async (args: Record<string, unknown>) => ({

@@ -198,7 +198,7 @@ Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](
 
 ## Status
 
-v1.0.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 60 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+v2.0.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 60 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
 
 - macOS (Apple Silicon), Node v25 — gist + selfhost backends
 
