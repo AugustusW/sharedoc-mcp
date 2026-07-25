@@ -69,32 +69,38 @@ export class SelfHostBackend implements ShareBackend {
     return { password: 'server', expiry: 'enforced', revoke: 'grace' };
   }
 
-  /** SQLite-backed fixed-window rate limiter — counters survive restarts.
-   *  BEGIN IMMEDIATE serializes the check-then-act across PROCESSES (two viewers
-   *  can genuinely run concurrently with SHAREDOC_PORT=0) — review I1. */
-  rateAllow(key: string, capacity = 5, windowMs = 60_000): boolean {
+  /** Failure-counting rate limiter, SQLite-backed (survives restarts).
+   *  Only FAILED unlock attempts count; checking is free and success clears —
+   *  a legit user can never lock a doc by opening it repeatedly. BEGIN IMMEDIATE
+   *  serializes writers across processes (review I1). */
+  rateBlocked(key: string, capacity = 5, windowMs = 60_000): boolean {
+    const t = this.now().getTime();
+    const row = this.db.prepare(`SELECT windowStart, count FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number; count: number } | undefined;
+    if (!row || t - row.windowStart >= windowMs) return false;
+    return row.count >= capacity;
+  }
+
+  rateRecordFailure(key: string, windowMs = 60_000): void {
     const t = this.now().getTime();
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare(`DELETE FROM rateLimits WHERE windowStart < ?`).run(t - windowMs);
-      const row = this.db.prepare(`SELECT windowStart, count FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number; count: number } | undefined;
-      let allowed: boolean;
+      const row = this.db.prepare(`SELECT windowStart FROM rateLimits WHERE key = ?`).get(key) as { windowStart: number } | undefined;
       if (!row || t - row.windowStart >= windowMs) {
         this.db.prepare(`INSERT INTO rateLimits (key, windowStart, count) VALUES (?, ?, 1)
           ON CONFLICT(key) DO UPDATE SET windowStart = excluded.windowStart, count = 1`).run(key, t);
-        allowed = true;
-      } else if (row.count >= capacity) {
-        allowed = false;
       } else {
         this.db.prepare(`UPDATE rateLimits SET count = count + 1 WHERE key = ?`).run(key);
-        allowed = true;
       }
       this.db.exec('COMMIT');
-      return allowed;
     } catch (e) {
       this.db.exec('ROLLBACK');
       throw e;
     }
+  }
+
+  rateClear(key: string): void {
+    this.db.prepare(`DELETE FROM rateLimits WHERE key = ?`).run(key);
   }
 
   rateRetryAfterSeconds(key: string, windowMs = 60_000): number {

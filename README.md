@@ -44,7 +44,7 @@ content lives in chat scroll          revoke / extend / append later
 - ✓ Viewer binds **127.0.0.1 only**, answers with a strict security-header set (CSP `default-src 'none'`, nosniff, DENY framing, no-referrer, no-store) — exposure is a tunnel you control (recipes below)
 - ✓ Local index for `search_shared_docs` + create dedup (identical unprotected retries within 5 min return the same URL; a retry that adds a password/expiry always creates a new doc)
 - ✓ Two MCP clients can share one data dir: SQLite WAL + busy timeout, graceful port sharing
-- ✓ 60 offline tests; `npm test` passes on a clean checkout
+- ✓ 70 offline tests; `npm test` passes on a clean checkout
 
 ## Install
 
@@ -53,7 +53,7 @@ Requires Node.js ≥ 22.13.0. Gist backend additionally needs [GitHub CLI](https
 **Option A — Claude Code (one line):**
 
 ```bash
-claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp
+claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp@^2
 ```
 
 **Option B — Codex CLI** (`~/.codex/config.toml`):
@@ -61,10 +61,12 @@ claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp
 ```toml
 [mcp_servers.sharedoc]
 command = "npx"
-args = ["-y", "sharedoc-mcp"]
+args = ["-y", "sharedoc-mcp@^2"]
 ```
 
-**Option C — any other MCP client:** run `npx -y sharedoc-mcp` as a stdio server.
+**Option C — any other MCP client:** run `npx -y sharedoc-mcp@^2` as a stdio server.
+
+> **Why `@^2`?** A bare `npx -y sharedoc-mcp` resolves the **latest published version** on every cold start — a future 3.0 could change behavior (or remove a tool) under you without warning. `@^2` follows 2.x fixes but never crosses a breaking major; pin an exact version (`@2.1.0`) if you want zero drift.
 
 ## Pick your backend
 
@@ -86,7 +88,7 @@ A local index (`~/.config/sharedoc-mcp/index.json`) tracks what you've shared, p
 ### Selfhost quickstart
 
 ```bash
-claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y sharedoc-mcp
+claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y sharedoc-mcp@^2
 ```
 
 Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `http://127.0.0.1:8377`. To share beyond your machine, put a tunnel in front and set `SHAREDOC_PUBLIC_URL`:
@@ -94,7 +96,7 @@ Docs live in SQLite at `~/.local/share/sharedoc-mcp/`; a viewer serves them at `
 > **Links that outlive your editor:** in MCP mode the viewer dies with the MCP client — close Claude Code and selfhost links stop answering until the next session (data is safe in SQLite). Run the standalone daemon to keep links alive around the clock:
 >
 > ```bash
-> npx -y sharedoc-mcp serve   # viewer only, same DB — keep it running via launchd/systemd/tmux
+> npx -y sharedoc-mcp@^2 serve   # viewer only, same DB — keep it running via launchd/systemd/tmux (Windows: Task Scheduler or NSSM)
 > ```
 >
 > MCP clients detect the daemon already owns the port and simply use it.
@@ -166,21 +168,21 @@ Environment variables:
 | `reset_shared_doc_password` | set / change / remove (null) the password (selfhost only) |
 | `update_shared_doc_title` | rename |
 | `revoke_shared_doc` | kill the link, keep the record (see backend table for semantics) |
-| `delete_shared_doc` | kill the link AND erase the record — irreversible |
+| `delete_shared_doc` | kill the link AND erase the record — irreversible; requires `confirm: true` (agents should get explicit user approval first) |
 | `search_shared_docs` | no args = list newest links; title substring, body-text search (selfhost: full content; gist: opening excerpt), status filter |
 
 ## Privacy
 
 Data flow, by backend:
 
-- **Gist backend**: your document content is uploaded to GitHub as a secret gist under your account — GitHub's terms and retention apply. The local index (titles, URLs, timestamps — not content) stays in `~/.config/sharedoc-mcp/`. Nothing is sent anywhere except GitHub via your own `gh` CLI.
+- **Gist backend**: your document content is uploaded to GitHub as a secret gist under your account — GitHub's terms and retention apply. The local index stays in `~/.config/sharedoc-mcp/` — it stores titles, URLs, timestamps, and the first 200 characters of each doc (for local content search); never the full content. Nothing is sent anywhere except GitHub via your own `gh` CLI.
 - **Selfhost backend**: content never leaves your machine unless you attach a tunnel — then it's served to whoever you gave the link (and the tunnel provider relays the traffic). Passwords are stored only as bcrypt hashes.
 - sharedoc-mcp itself has no telemetry and calls no third-party service of its own.
 
 ## Security semantics, honestly
 
 - **Gist links are bearer tokens**: anyone with the URL reads the doc. Revoke deletes the gist immediately and irreversibly.
-- Selfhost passwords are verified server-side before content is served; wrong attempts are rate-limited (5/minute per source+doc), with counters persisted in SQLite — restarting the server does not reset them. **Behind a tunnel, all external visitors share one source address**, so the practical limit is 5/minute per doc — stricter than per-visitor; one person mistyping can briefly lock a doc for others.
+- Selfhost passwords are verified server-side before content is served; only WRONG attempts are rate-limited (5/minute per source+doc; a correct unlock clears the counter), with counters persisted in SQLite — restarting the server does not reset them. **Behind a tunnel, all external visitors share one source address**, so the practical limit is 5/minute per doc — stricter than per-visitor; one person mistyping can briefly lock a doc for others.
 - There is deliberately **no file-sharing tool**: an arbitrary-path "share this file" tool is a prompt-injection exfiltration vector (`.env`, keys) — a hijacked agent could publish secrets. Removed rather than allowlisted.
 - The viewer never binds beyond 127.0.0.1. Whether and how it reaches the internet is entirely your tunnel's configuration.
 
@@ -190,7 +192,7 @@ Data flow, by backend:
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # builds, then runs 60 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
+npm test        # builds, then runs 70 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
 ```
 
 Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp).
@@ -198,7 +200,7 @@ Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](
 
 ## Status
 
-v2.0.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 60 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+v2.1.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 70 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
 
 - macOS (Apple Silicon), Node v25 — gist + selfhost backends
 

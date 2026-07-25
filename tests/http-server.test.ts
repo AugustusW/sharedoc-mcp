@@ -54,7 +54,7 @@ describe('HTTP viewer', () => {
     expect(await good.text()).toContain('secret-body');
   });
 
-  it('rate limits the password endpoint: 6th attempt → 429 + Retry-After', async () => {
+  it('rate limits WRONG passwords: 6th wrong attempt → 429 + Retry-After', async () => {
     const id = await createId({ title: 'RL', content: 'x', password: 'pw' });
     let last: Response = new Response();
     for (let i = 0; i < 6; i++) {
@@ -65,6 +65,19 @@ describe('HTTP viewer', () => {
     }
     expect(last.status).toBe(429);
     expect(last.headers.get('retry-after')).toBeTruthy();
+  });
+
+  it('correct passwords are never rate-limited, and a success clears prior failures', async () => {
+    const id = await createId({ title: 'RL2', content: 'ok-body', password: 'pw' });
+    const post = (password: string) => fetch(`${base}/docs/${id}`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: `password=${password}`,
+    });
+    for (let i = 0; i < 8; i++) expect((await post('pw')).status).toBe(200); // successes don't count
+    for (let i = 0; i < 4; i++) await post('wrong');
+    expect((await post('pw')).status).toBe(200);   // 4 failures < cap → unlock works, clears counter
+    for (let i = 0; i < 4; i++) await post('wrong');
+    expect((await post('wrong')).status).toBe(401); // 5th failure post-clear: still 401, not 429
   });
 
   it('unknown → 404; revoked → 410', async () => {

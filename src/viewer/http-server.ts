@@ -107,8 +107,10 @@ export async function startViewer(
         // NOTE: behind a tunnel, remoteAddress is the tunnel's loopback for ALL
         // external requesters — the bucket degrades to per-doc, which is stricter,
         // never weaker. Counters live in SQLite, so a restart doesn't reset them.
+        // Only FAILURES count: reject at the cap first, record on wrong password,
+        // clear on success — correct unlocks can never trip the limiter.
         const key = `${req.socket.remoteAddress}:${docId}`;
-        if (!backend.rateAllow(key)) {
+        if (backend.rateBlocked(key)) {
           head(res, 429, { 'content-type': 'text/plain', 'retry-after': String(backend.rateRetryAfterSeconds(key)) })
             .end('too many attempts');
           return;
@@ -122,8 +124,10 @@ export async function startViewer(
         }
         const password = new URLSearchParams(body).get('password') ?? '';
         if (!row.passwordHash || bcrypt.compareSync(password, row.passwordHash)) {
+          backend.rateClear(key);
           head(res, 200, html).end(renderDoc(row.title, row.content));
         } else {
+          backend.rateRecordFailure(key);
           head(res, 401, html).end(passwordForm(docId, true));
         }
         return;

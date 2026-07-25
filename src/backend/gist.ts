@@ -101,11 +101,6 @@ export class GistBackend implements ShareBackend {
   async appendDoc(docId: string, content: string): Promise<void> {
     await this.lazyCleanup();
     const e = this.mustGet(docId);
-    // Top up the searchable excerpt while it's short — docs created empty and
-    // filled by appends would otherwise never be findable via content search.
-    if ((e.excerpt ?? '').length < 200) {
-      this.store.update(docId, { excerpt: ((e.excerpt ?? '') + content).slice(0, 200) }, this.now());
-    }
     const filename = e.filename ?? `${slugify(e.title)}.md`;
     const raw = await this.gh(['api', `gists/${docId}`]);
     let file: { content?: string; truncated?: boolean } | undefined;
@@ -121,7 +116,13 @@ export class GistBackend implements ShareBackend {
     const current = file.content ?? '';
     const body = JSON.stringify({ files: { [filename]: { content: current.replace(/\n$/, '') + content } } });
     await this.gh(['api', `gists/${docId}`, '-X', 'PATCH', '--input', '-'], body);
-    this.store.update(docId, {}, this.now());
+    // Excerpt top-up only AFTER the PATCH succeeded — otherwise a failed append
+    // would leave locally-searchable text that isn't in the gist (review #5).
+    const patch: Partial<import('../index-store.js').IndexEntry> = {};
+    if ((e.excerpt ?? '').length < 200) {
+      patch.excerpt = ((e.excerpt ?? '') + content).slice(0, 200);
+    }
+    this.store.update(docId, patch, this.now());
   }
 
   async extendDoc(docId: string, hours: number): Promise<void> {
@@ -167,10 +168,9 @@ export class GistBackend implements ShareBackend {
 
   async searchDocs(p: SearchParams): Promise<DocRecord[]> {
     await this.lazyCleanup();
-    const cq = (p.contentQuery ?? '').toLowerCase();
+    // Excerpt filtering happens inside store.search (before the limit) — review #4.
+    // Map IndexEntry → DocRecord: internal fields (contentHash, filename, excerpt) stay internal.
     return this.store.search(p)
-      .filter(e => cq === '' || (e.excerpt ?? '').toLowerCase().includes(cq))
-      // Map IndexEntry → DocRecord: internal fields (contentHash, filename, excerpt) stay internal.
       .map(({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }) =>
         ({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }));
   }

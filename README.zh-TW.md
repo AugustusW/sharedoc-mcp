@@ -44,7 +44,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 - ✓ Viewer **只 bind 127.0.0.1**，所有回應帶完整安全 headers（CSP `default-src 'none'`、nosniff、禁 iframe、no-referrer、no-store）——對外曝光交給你自己控制的 tunnel（食譜見下）
 - ✓ 本地索引支援 `search_shared_docs` 與建立去重（5 分鐘內相同的無保護重試回同一 URL；補加密碼/期限的重試一律建新文件）
 - ✓ 兩個 MCP client 可共用同一資料目錄：SQLite WAL + busy timeout、埠衝突優雅共存
-- ✓ 60 個離線測試；乾淨 checkout `npm test` 直接綠
+- ✓ 70 個離線測試；乾淨 checkout `npm test` 直接綠
 
 ## 安裝
 
@@ -53,7 +53,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 **方式 A — Claude Code（一行）：**
 
 ```bash
-claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp
+claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp@^2
 ```
 
 **方式 B — Codex CLI**（`~/.codex/config.toml`）：
@@ -61,10 +61,12 @@ claude mcp add sharedoc --scope user -- npx -y sharedoc-mcp
 ```toml
 [mcp_servers.sharedoc]
 command = "npx"
-args = ["-y", "sharedoc-mcp"]
+args = ["-y", "sharedoc-mcp@^2"]
 ```
 
-**方式 C — 其他 MCP client：**以 stdio server 執行 `npx -y sharedoc-mcp`。
+**方式 C — 其他 MCP client：**以 stdio server 執行 `npx -y sharedoc-mcp@^2`。
+
+> **為什麼用 `@^2`？**裸的 `npx -y sharedoc-mcp` 每次冷啟動解析**最新已發佈版本**——未來的 3.0 可能在你不知情下改變行為（甚至移除工具）。`@^2` 跟得上 2.x 修正、但永不跨 breaking 大版；想零漂移就釘精確版本（`@2.1.0`）。
 
 ## 選後端
 
@@ -86,7 +88,7 @@ args = ["-y", "sharedoc-mcp"]
 ### Selfhost 快速開始
 
 ```bash
-claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y sharedoc-mcp
+claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y sharedoc-mcp@^2
 ```
 
 文件存在 `~/.local/share/sharedoc-mcp/` 的 SQLite；viewer 於 `http://127.0.0.1:8377` 服務。要分享到機器之外，前面接一個 tunnel 並設定 `SHAREDOC_PUBLIC_URL`：
@@ -94,7 +96,7 @@ claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y s
 > **讓連結活得比編輯器久：**MCP 模式下 viewer 跟著 MCP client 一起關——關掉 Claude Code，selfhost 連結就暫時打不開（資料安全存在 SQLite，下次開就恢復）。要連結全天候在線，跑獨立 daemon：
 >
 > ```bash
-> npx -y sharedoc-mcp serve   # 只跑 viewer、共用同一個 DB——用 launchd/systemd/tmux 常駐
+> npx -y sharedoc-mcp@^2 serve   # 只跑 viewer、共用同一個 DB——用 launchd/systemd/tmux 常駐（Windows：工作排程器或 NSSM）
 > ```
 >
 > MCP client 偵測到 daemon 已佔埠就直接沿用它。
@@ -164,21 +166,21 @@ claude mcp add sharedoc --scope user \
 | `reset_shared_doc_password` | 設定／更換／移除（null）密碼（僅 selfhost） |
 | `update_shared_doc_title` | 改標題 |
 | `revoke_shared_doc` | 撤銷連結、保留紀錄（語意見後端對照表） |
-| `delete_shared_doc` | 連結失效＋紀錄整個消失——不可逆 |
+| `delete_shared_doc` | 連結失效＋紀錄整個消失——不可逆；需帶 `confirm: true`（agent 應先取得使用者明確同意） |
 | `search_shared_docs` | 不帶參數＝列出最新連結；標題子字串、內文搜尋（selfhost 全文；gist 僅開頭摘要）、狀態篩選 |
 
 ## 隱私
 
 各後端的資料流：
 
-- **Gist 後端**：文件內容以 secret gist 上傳到你 GitHub 帳號下——適用 GitHub 的條款與保存政策。本地索引（標題、URL、時間戳——不含內容）留在 `~/.config/sharedoc-mcp/`。除了經你自己的 `gh` CLI 送 GitHub 之外，不送任何地方。
+- **Gist 後端**：文件內容以 secret gist 上傳到你 GitHub 帳號下——適用 GitHub 的條款與保存政策。本地索引留在 `~/.config/sharedoc-mcp/`——存標題、URL、時間戳與每份文件的前 200 字元（供本機內容搜尋）；不存完整內容。除了經你自己的 `gh` CLI 送 GitHub 之外，不送任何地方。
 - **Selfhost 後端**：內容不離開你的機器，除非你接了 tunnel——那之後就是「拿到連結的人 + 中繼流量的 tunnel 供應商」可及。密碼只以 bcrypt 雜湊儲存。
 - sharedoc-mcp 本身無遙測、不呼叫任何自己的第三方服務。
 
 ## 安全語意（誠實版）
 
 - **Gist 連結即權限**：拿到 URL 就能讀。撤銷＝立即刪除 gist、不可逆。
-- Selfhost 密碼於 server 端驗證通過才吐內容；錯誤嘗試限流（每來源+文件 5 次/分鐘），計數存 SQLite——重啟 server 不會歸零。**經 tunnel 時所有外部訪客共用同一來源位址**，實際效果是每份文件 5 次/分鐘——比逐訪客更嚴格；一個人打錯幾次會讓該文件對其他人短暫鎖定。
+- Selfhost 密碼於 server 端驗證通過才吐內容；只有「錯誤」嘗試會計入限流（每來源+文件 5 次/分鐘；解鎖成功即清空計數），計數存 SQLite——重啟 server 不會歸零。**經 tunnel 時所有外部訪客共用同一來源位址**，實際效果是每份文件 5 次/分鐘——比逐訪客更嚴格；一個人打錯幾次會讓該文件對其他人短暫鎖定。
 - 刻意**沒有檔案分享工具**：可傳任意路徑的「分享這個檔案」工具是 prompt injection 的洩密面（`.env`、金鑰）——被劫持的 agent 可以直接把機敏檔發佈出去。與其做 allowlist 不如整個拿掉。
 - Viewer 永遠只 bind 127.0.0.1。它是否、如何觸及網際網路，完全由你的 tunnel 設定決定。
 
@@ -188,7 +190,7 @@ claude mcp add sharedoc --scope user \
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # 先 build 再跑 60 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
+npm test        # 先 build 再跑 70 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
 ```
 
 版本規則：每次釋出 bump `package.json` 的 `version`、加一筆 [CHANGELOG](./CHANGELOG.md)、打 git tag 發 [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp)。
@@ -196,7 +198,7 @@ npm test        # 先 build 再跑 60 個離線測試——gh CLI 以 mock 替�
 
 ## 狀態
 
-v2.0.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 60 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
+v2.1.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 70 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
 
 - macOS（Apple Silicon）、Node v25——gist + selfhost 兩後端
 

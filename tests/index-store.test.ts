@@ -62,6 +62,15 @@ describe('IndexStore', () => {
     expect(store.expired(later).map(e => e.docId)).toEqual(['e1']);
   });
 
+  it('contentQuery match beyond the newest N is still found (filter before limit)', () => {
+    store.add(entry({ docId: 'old', title: 'Old', createdAt: '2026-07-01T00:00:00Z', excerpt: 'the needle text' }));
+    for (let i = 0; i < 25; i++) {
+      store.add(entry({ docId: `n${i}`, title: `New ${i}`, createdAt: `2026-07-10T00:00:${String(i).padStart(2, '0')}Z` }));
+    }
+    const hits = store.search({ contentQuery: 'needle' }); // default limit 20
+    expect(hits.map(e => e.docId)).toEqual(['old']);
+  });
+
   it('search: title substring (case-insensitive) + status filter + limit', () => {
     store.add(entry({ docId: 'a', title: 'Weekly Report' }));
     store.add(entry({ docId: 'b', title: 'weekly summary', status: 'revoked' }));

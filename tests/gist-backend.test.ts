@@ -183,6 +183,23 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     expect(store.get('f00dfeed')).toBeUndefined();
   });
 
+  it('failed PATCH does not update the excerpt (no locally-searchable ghost text)', async () => {
+    const fake = makeFake({
+      'gh gist create': `${GIST_URL}\n`,
+      'gh api gists/f00dfeed': JSON.stringify({ files: { 'stub.md': { content: 'x', truncated: false } } }),
+    });
+    const { store, backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'Stub', content: 'x' });
+    // PATCH shares the 'gh api gists/<id>' prefix — fail only the PATCH call
+    const run: CommandRunner = async (argv, input) => {
+      if (argv.includes('PATCH')) return { stdout: '', stderr: 'HTTP 500', exitCode: 1 };
+      return fake.run(argv, input);
+    };
+    const b2 = new GistBackend(store, run, () => T0);
+    await expect(b2.appendDoc('f00dfeed', ' ghost-text')).rejects.toThrow();
+    expect((await b2.searchDocs({ contentQuery: 'ghost-text' })).length).toBe(0);
+  });
+
   it('append tops up a short excerpt so later content search can find it', async () => {
     const fake = makeFake({
       'gh gist create': `${GIST_URL}\n`,

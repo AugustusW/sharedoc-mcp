@@ -62,6 +62,9 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       return { ok: true, doc_id: id };
     }),
     delete_shared_doc: wrap(async a => {
+      if (a.confirm !== true) {
+        throw new BackendError('delete_shared_doc is irreversible — call again with confirm: true only after the user has explicitly approved permanent deletion. For a reversible takedown, use revoke_shared_doc.');
+      }
       const id = extractDocId(String(a.doc_id_or_url));
       await backend.deleteDoc(id);
       return { ok: true, doc_id: id };
@@ -116,8 +119,8 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     inputSchema: { doc_id_or_url: z.string(), updated_user: optStr },
   },
   delete_shared_doc: {
-    description: 'Permanently delete a shared doc: the link dies AND the record disappears from search — unlike revoke_shared_doc, no history is kept. Irreversible on both backends.',
-    inputSchema: { doc_id_or_url: z.string() },
+    description: 'Permanently delete a shared doc: the link dies AND the record disappears from search — unlike revoke_shared_doc, no history is kept. Irreversible on both backends. Requires confirm: true, which you must only pass after the user explicitly approved the permanent deletion; prefer revoke_shared_doc for routine takedowns.',
+    inputSchema: { doc_id_or_url: z.string(), confirm: z.boolean() },
   },
   search_shared_docs: {
     description: 'Find previously shared docs and their links. Call with NO arguments to list the newest docs (each result includes its share URL). title_query filters by title substring; content_query searches body text (selfhost: full content; gist: the opening excerpt only); status filters active/revoked/expired; limit max 100.',
@@ -131,7 +134,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
 };
 
 export function buildServer(backend: ShareBackend): McpServer {
-  const server = new McpServer({ name: 'sharedoc', version: '2.0.0' });
+  const server = new McpServer({ name: 'sharedoc', version: '2.1.0' });
   const handlers = buildToolHandlers(backend);
   for (const [name, meta] of Object.entries(TOOL_SCHEMAS)) {
     server.registerTool(name, meta, async (args: Record<string, unknown>) => ({

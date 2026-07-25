@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
+## [2.1.0] - 2026-07-25
+
+User-audit round — all findings from a post-2.0.0 security/behavior review.
+
+### Changed
+- **Rate limiter now counts only FAILED unlock attempts** (was: every POST, including
+  correct passwords). At the cap requests are rejected first; a wrong password records a
+  failure; a correct unlock clears the counter — a legit user can no longer lock a doc
+  for others by unlocking it repeatedly
+- **`delete_shared_doc` now requires `confirm: true`** — an irreversible tool exposed to
+  agents deserves an explicit-consent gate; the error message tells the model to obtain
+  user approval first. Prefer `revoke_shared_doc` for routine takedowns
+- Gist content search filters BEFORE applying the limit — a match older than the newest
+  20 docs is now found
+- Gist append updates the local search excerpt only AFTER the GitHub PATCH succeeds —
+  a failed append can no longer leave locally-searchable text that isn't in the gist
+
+### Fixed
+- `npm audit` is clean: `@hono/node-server` (transitive via the MCP SDK, unused by this
+  package's stdio + native-http paths) pinned to ≥2.0.5 via `overrides`; all 70 tests
+  pass with the override
+- README privacy wording: the gist local index stores the first 200 characters of each
+  doc (for content search), not "no content"
+- README: install examples now pin the major (`npx -y sharedoc-mcp@^2`) so a future
+  breaking release can't change behavior on a cold start; exact-pin guidance included.
+  Windows daemon options
+  (Task Scheduler / NSSM)
+
 ## [2.0.0] - 2026-07-25
 
 ### Added

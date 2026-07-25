@@ -156,32 +156,41 @@ describe('SelfHostBackend content search', () => {
   });
 });
 
-describe('SelfHostBackend rate limiter (SQLite-backed)', () => {
-  it('allows 5 per window per key, then blocks', () => {
+describe('SelfHostBackend rate limiter (SQLite-backed, failure-counting)', () => {
+  it('blocks after 5 recorded FAILURES; checking alone never consumes', () => {
     const { backend } = makeBackend();
-    for (let i = 0; i < 5; i++) expect(backend.rateAllow('k')).toBe(true);
-    expect(backend.rateAllow('k')).toBe(false);
-    expect(backend.rateAllow('other')).toBe(true);
+    for (let i = 0; i < 10; i++) expect(backend.rateBlocked('k')).toBe(false); // peeking is free
+    for (let i = 0; i < 5; i++) backend.rateRecordFailure('k');
+    expect(backend.rateBlocked('k')).toBe(true);
+    expect(backend.rateBlocked('other')).toBe(false);
     expect(backend.rateRetryAfterSeconds('k')).toBeGreaterThan(0);
   });
 
-  it('state survives a restart (persisted in SQLite)', () => {
+  it('rateClear (successful unlock) resets the counter', () => {
     const { backend } = makeBackend();
-    for (let i = 0; i < 5; i++) backend.rateAllow('k');
+    for (let i = 0; i < 4; i++) backend.rateRecordFailure('k');
+    backend.rateClear('k');
+    backend.rateRecordFailure('k');
+    expect(backend.rateBlocked('k')).toBe(false); // back to 1 failure, not 5
+  });
+
+  it('failure count survives a restart (persisted in SQLite)', () => {
+    const { backend } = makeBackend();
+    for (let i = 0; i < 5; i++) backend.rateRecordFailure('k');
     const reborn = new SelfHostBackend({
       dbPath: backend.dbPath,
       publicUrl: 'http://127.0.0.1:8377', now: () => T0,
     });
-    expect(reborn.rateAllow('k')).toBe(false); // restart must NOT reset the counter
+    expect(reborn.rateBlocked('k')).toBe(true); // restart must NOT reset the counter
   });
 
   it('window refill after 61s', () => {
     const { backend } = makeBackend();
-    for (let i = 0; i < 6; i++) backend.rateAllow('k');
+    for (let i = 0; i < 6; i++) backend.rateRecordFailure('k');
     const later = new SelfHostBackend({
       dbPath: backend.dbPath,
       publicUrl: 'http://127.0.0.1:8377', now: () => new Date(T0.getTime() + 61_000),
     });
-    expect(later.rateAllow('k')).toBe(true);
+    expect(later.rateBlocked('k')).toBe(false);
   });
 });

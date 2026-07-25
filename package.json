@@ -1,6 +1,6 @@
 {
   "name": "sharedoc-mcp",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Share agent-generated Markdown as links — GitHub gists today, your own server tomorrow. An MCP server.",
   "license": "MIT",
   "author": "AugustusW",
@@ -36,5 +36,8 @@
     "@types/sanitize-html": "^2.16.1",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
+  },
+  "overrides": {
+    "@hono/node-server": "^2.0.5"
   }
 }

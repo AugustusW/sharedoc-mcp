@@ -67,10 +67,18 @@ describe('tool handlers', () => {
     ]);
   });
 
-  it('delete_shared_doc passes extracted id and returns {ok, doc_id}', async () => {
+  it('delete_shared_doc requires confirm: true (guards against accidental model calls)', async () => {
+    let called = false;
+    const h = buildToolHandlers(stubBackend({ deleteDoc: async () => { called = true; } }));
+    const r = await h.delete_shared_doc({ doc_id_or_url: 'f00dfeed' }) as { error: string };
+    expect(r.error).toContain('confirm');
+    expect(called).toBe(false);
+  });
+
+  it('delete_shared_doc with confirm passes extracted id and returns {ok, doc_id}', async () => {
     let got = '';
     const h = buildToolHandlers(stubBackend({ deleteDoc: async id => { got = id; } }));
-    const r = await h.delete_shared_doc({ doc_id_or_url: 'https://gist.github.com/u/f00dfeed' });
+    const r = await h.delete_shared_doc({ doc_id_or_url: 'https://gist.github.com/u/f00dfeed', confirm: true });
     expect(got).toBe('f00dfeed');
     expect(r).toEqual({ ok: true, doc_id: 'f00dfeed' });
   });
