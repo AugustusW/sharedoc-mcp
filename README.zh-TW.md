@@ -12,7 +12,7 @@
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-orange.svg)](https://claude.com/claude-code)
 [![Codex](https://img.shields.io/badge/Codex-compatible-black.svg)](https://developers.openai.com/codex/)
 
-一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **8 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
+一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **7 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
 
 > 後端不支援某參數時（如 gist 收到 `password`）會回明確錯誤，不會靜默忽略。
 
@@ -31,18 +31,17 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 
 ## 特色
 
-- ✓ 8 個 MCP 工具：建立／追加／延長／改密碼／改標題／撤銷／搜尋／分享檔案
+- ✓ 7 個 MCP 工具：建立／追加／延長／改密碼／改標題／撤銷／搜尋
 - ✓ 兩個後端、同一組介面——一個環境變數切換，工具 schema 完全相同
 - ✓ **Gist 後端**（預設）：secret gist 走你已登入的 `gh` CLI——不用管 token、不用架任何東西
 - ✓ **Selfhost 後端**：文件留在你機器上（內建 `node:sqlite`——零原生模組）
-- ✓ Server 端密碼驗證（bcrypt）+ 錯誤嘗試限流——5 次/分鐘，HTTP 429（selfhost）
+- ✓ Server 端密碼驗證（bcrypt）+ 錯誤嘗試限流——5 次/分鐘，HTTP 429，計數存 SQLite、重啟不歸零（selfhost）
 - ✓ 強制期限（410）與撤銷 7 天內容清除緩衝（selfhost）；惰性過期清理（gist）
 - ✓ Markdown 經 `marked` + `sanitize-html` 渲染——分享內容中的 script、事件屬性、`javascript:` 連結都會被剝除
-- ✓ Viewer **只 bind 127.0.0.1**——對外曝光交給你自己控制的 tunnel（食譜見下）
+- ✓ Viewer **只 bind 127.0.0.1**，所有回應帶完整安全 headers（CSP `default-src 'none'`、nosniff、禁 iframe、no-referrer、no-store）——對外曝光交給你自己控制的 tunnel（食譜見下）
 - ✓ 本地索引支援 `search_shared_docs` 與建立去重（5 分鐘內相同的無保護重試回同一 URL；補加密碼/期限的重試一律建新文件）
-- ✓ selfhost 檔案分享（僅連結保護——見[安全語意](#安全語意誠實版)）
 - ✓ 兩個 MCP client 可共用同一資料目錄：SQLite WAL + busy timeout、埠衝突優雅共存
-- ✓ 52 個離線測試；乾淨 checkout `npm test` 直接綠
+- ✓ 51 個離線測試；乾淨 checkout `npm test` 直接綠
 
 ## 安裝
 
@@ -74,7 +73,6 @@ args = ["-y", "sharedoc-mcp"]
 | 密碼 | ✗（secret URL 本身就是保護） | ✓ server 端驗證（bcrypt）+ 限流 |
 | 期限 | 惰性——過期 gist 於下次使用時刪除 | 強制——過期連結回 410 |
 | 撤銷 | gist 立即刪除、不可逆 | 立即 410，內容 7 天緩衝後清除 |
-| 檔案分享 | ✗（gist 僅文字） | ✓（僅連結保護） |
 
 ### Gist 快速開始
 
@@ -92,7 +90,8 @@ claude mcp add sharedoc --scope user --env SHAREDOC_BACKEND=selfhost -- npx -y s
 
 | 食譜 | 適合 | 設定 |
 |---|---|---|
-| **Tailscale Funnel**（推薦） | 沒網域、要固定網址 | 裝 [Tailscale](https://tailscale.com)，`tailscale funnel 8377` → 固定 `https://<機器>.<tailnet>.ts.net` |
+| **Tailscale 私有連線**（推薦） | 收件人是自己的裝置／可邀進 tailnet 的人 | `tailscale serve --bg 8377` → `https://<機器>.<tailnet>.ts.net`，**只有 tailnet 內可達**——完全不暴露到公網 |
+| **Tailscale Funnel** | 要分享給任何人、沒網域 | `tailscale funnel 8377` → 同一條固定網址，但公開 |
 | **Cloudflare named tunnel** | 有自己的網域 | 網域掛 Cloudflare，`cloudflared tunnel create` + 主機名 route 到 `http://127.0.0.1:8377` |
 | **cloudflared quick tunnel** | 臨時分享 | `cloudflared tunnel --url http://127.0.0.1:8377` → 隨機網址，每次重啟會變 |
 
@@ -138,16 +137,15 @@ claude mcp add sharedoc --scope user \
 | `SHAREDOC_BACKEND` | `gist` | `gist` 或 `selfhost` |
 | `SHAREDOC_PORT` | `8377` | viewer 埠（selfhost） |
 | `SHAREDOC_PUBLIC_URL` | `http://127.0.0.1:<port>` | 分享連結的網址前綴——設成你的 tunnel 主機名 |
-| `SHAREDOC_DATA_DIR` | `~/.local/share/sharedoc-mcp` | SQLite 與檔案位置（selfhost） |
+| `SHAREDOC_DATA_DIR` | `~/.local/share/sharedoc-mcp` | SQLite 位置（selfhost） |
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | 本地索引（gist） |
 | `MCP_CALLER` | — | 建立文件的預設作者歸因 |
 
-## 8 個工具
+## 7 個工具
 
 | 工具 | 功能 |
 |---|---|
 | `create_shared_doc` | 標題 + Markdown（+ 選填密碼 / `expires_in_hours` / 作者）→ 分享 URL |
-| `create_shared_file` | 分享本機檔案（僅 selfhost） |
 | `append_to_shared_doc` | 尾端追加 Markdown（非冪等——重試會加兩次） |
 | `extend_shared_doc` | 延長期限 N 小時 |
 | `reset_shared_doc_password` | 設定／更換／移除（null）密碼（僅 selfhost） |
@@ -166,8 +164,8 @@ claude mcp add sharedoc --scope user \
 ## 安全語意（誠實版）
 
 - **Gist 連結即權限**：拿到 URL 就能讀。撤銷＝立即刪除 gist、不可逆。
-- Selfhost 密碼於 server 端驗證通過才吐內容；錯誤嘗試限流（每來源+文件 5 次/分鐘）。**經 tunnel 時所有外部訪客共用同一來源位址**，實際效果是每份文件 5 次/分鐘——比逐訪客更嚴格；一個人打錯幾次會讓該文件對其他人短暫鎖定。
-- 分享的**檔案**沒有密碼與期限：無法猜測的連結是唯一且永久的保護，下載也不限流。
+- Selfhost 密碼於 server 端驗證通過才吐內容；錯誤嘗試限流（每來源+文件 5 次/分鐘），計數存 SQLite——重啟 server 不會歸零。**經 tunnel 時所有外部訪客共用同一來源位址**，實際效果是每份文件 5 次/分鐘——比逐訪客更嚴格；一個人打錯幾次會讓該文件對其他人短暫鎖定。
+- 刻意**沒有檔案分享工具**：可傳任意路徑的「分享這個檔案」工具是 prompt injection 的洩密面（`.env`、金鑰）——被劫持的 agent 可以直接把機敏檔發佈出去。與其做 allowlist 不如整個拿掉。
 - Viewer 永遠只 bind 127.0.0.1。它是否、如何觸及網際網路，完全由你的 tunnel 設定決定。
 
 ## 開發
@@ -176,15 +174,15 @@ claude mcp add sharedoc --scope user \
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # 先 build 再跑 52 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
+npm test        # 先 build 再跑 51 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
 ```
 
 版本規則：每次釋出 bump `package.json` 的 `version`、加一筆 [CHANGELOG](./CHANGELOG.md)、打 git tag 發 [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp)。
-**想收到更新通知**：Watch 本 repo（Custom → Releases）。`npx -y` 每次冷啟動會抓最新已發佈版本；你的索引、文件 DB、分享檔案都在套件外——更新永遠不會動到它們。
+**想收到更新通知**：Watch 本 repo（Custom → Releases）。`npx -y` 每次冷啟動會抓最新已發佈版本；你的索引與文件 DB 都在套件外——更新永遠不會動到它們。
 
 ## 狀態
 
-v1.0.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 52 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
+v1.0.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 51 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
 
 - macOS（Apple Silicon）、Node v25——gist + selfhost 兩後端
 

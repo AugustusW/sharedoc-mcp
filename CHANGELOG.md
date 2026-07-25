@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
+## [Unreleased] — 2.0.0 (in progress)
+
+### Security (breaking)
+- **Removed `create_shared_file`** (7 tools now): an arbitrary-path file-sharing tool is a
+  prompt-injection exfiltration vector (`.env`, keys) — removed rather than allowlisted.
+  The selfhost `files` table and `/files/` routes are gone (migration 2 drops the table).
+- **Rate-limit counters persisted in SQLite** — restarting the server no longer resets
+  brute-force attempt counts.
+- **Full security-header set on every viewer response**: CSP `default-src 'none'` (inline
+  styles + https/data images + self-only form posts), `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
+- README: Tailscale **private** (`tailscale serve`, tailnet-only) is now the recommended
+  exposure default; Funnel/public tunnels are the share-with-anyone option.
+
 ## [1.0.0] - 2026-07-25
 
 Initial public release.
