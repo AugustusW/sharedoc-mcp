@@ -12,7 +12,7 @@ export function dbFingerprint(dbPath: string): string {
 
 const PAGE = (title: string, body: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
+<meta name="robots" content="noindex, nofollow">
 <title>${escapeHtml(title)}</title>
 <style>:root{color-scheme:light dark;--bg:#ffffff;--fg:#1a1a1a;--muted:#5c5c5c;--border:#d0d0d0;--surface:#f6f6f6;--err:#b00020}
 @media (prefers-color-scheme:dark){:root{--bg:#1b1b1f;--fg:#e4e4e7;--muted:#a1a1aa;--border:#3f3f46;--surface:#26262b;--err:#ff7b72}}
@@ -36,6 +36,7 @@ const SEC_HEADERS: Record<string, string> = {
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',
   'cache-control': 'no-store',
+  'x-robots-tag': 'noindex, nofollow',
   'content-security-policy':
     "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };

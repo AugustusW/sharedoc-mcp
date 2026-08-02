@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
+## [2.1.2] - 2026-08-02
+
+Search-engine noindex hardening.
+
+### Added
+- **`X-Robots-Tag: noindex, nofollow` on every viewer response** (SEC_HEADERS) — the
+  existing robots meta only covers HTML; the header extends the no-indexing guarantee to
+  every response the viewer emits, including error pages
+- Robots meta upgraded from `noindex` to `noindex, nofollow` to match the header
+
 ## [2.1.1] - 2026-07-25
 
 Viewer rendering round — table/dark-mode/element styling from a user report on mobile.

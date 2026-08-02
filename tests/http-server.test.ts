@@ -119,7 +119,14 @@ describe('HTTP viewer', () => {
       expect(res.headers.get('referrer-policy')).toBe('no-referrer');
       expect(res.headers.get('cache-control')).toBe('no-store');
       expect(res.headers.get('content-security-policy')).toContain("default-src 'none'");
+      expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
     }
+  });
+
+  it('doc HTML carries a noindex,nofollow robots meta (search engines must not index shares)', async () => {
+    const id = await createId({ title: 'R', content: 'x' });
+    const html = await (await fetch(`${base}/docs/${id}`)).text();
+    expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
   });
 
   it('doc page stylesheet: dark-mode aware + table/blockquote/img rules', async () => {
