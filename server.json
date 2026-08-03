@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.augustusw/sharedoc-mcp",
+  "description": "Share agent-generated Markdown as links — GitHub gists today, your own server tomorrow. An MCP server.",
+  "repository": {
+    "url": "https://github.com/AugustusW/sharedoc-mcp",
+    "source": "github"
+  },
+  "version": "2.1.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "sharedoc-mcp",
+      "version": "2.1.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SHAREDOC_BACKEND",
+          "description": "Storage backend: 'gist' (secret gists via logged-in gh CLI, default) or 'selfhost' (local SQLite + built-in viewer)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "SHAREDOC_PUBLIC_URL",
+          "description": "URL prefix used in share links (selfhost) — set to your tunnel or reverse-proxy hostname",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
