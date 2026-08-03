@@ -5,6 +5,10 @@
   "description": "Share agent-generated Markdown as links — GitHub gists today, your own server tomorrow. An MCP server.",
   "license": "MIT",
   "author": "AugustusW",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AugustusW/sharedoc-mcp.git"
+  },
   "type": "module",
   "bin": {
     "sharedoc-mcp": "dist/index.js"
