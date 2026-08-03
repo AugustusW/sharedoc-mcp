@@ -1,0 +1,27 @@
+name: Publish to npm
+
+# Trusted publishing (OIDC): npm authenticates this workflow directly — no token,
+# no 2FA prompt. Configure once on npmjs.com: package Settings → Trusted publisher
+# → GitHub Actions → AugustusW/sharedoc-mcp / publish.yml.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  id-token: write   # OIDC token for npm trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing requires npm >= 11.5.1 (setup-node's bundled npm may lag)
+      - run: npm install -g npm@latest
+      - run: npm ci
+      # prepublishOnly runs build + tests; provenance attestation is generated via OIDC
+      - run: npm publish
