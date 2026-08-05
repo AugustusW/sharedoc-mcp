@@ -34,6 +34,10 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 「可以加密碼嗎？」……不行                selfhost 後端：bcrypt + 期限
 ```
 
+> 這些 Markdown 摘要哪來的？常常是另一個 skill 產的——例如
+> [audio-tldr](https://github.com/AugustusW/audio-tldr-skill) 把影片和 podcast 變成 Markdown 摘要，
+> sharedoc-mcp 再把摘要變成連結。
+
 ## 特色
 
 - ✓ 8 個 MCP 工具：建立／追加／延長／改密碼／改標題／撤銷／刪除／搜尋

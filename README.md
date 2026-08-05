@@ -34,6 +34,10 @@ content lives in chat scroll          revoke / extend / append later
 "can you password it?"  …no           selfhost backend: bcrypt + expiry
 ```
 
+> Where do those Markdown digests come from? Often another skill — e.g.
+> [audio-tldr](https://github.com/AugustusW/audio-tldr-skill) turns videos and podcasts into
+> Markdown digests; sharedoc-mcp turns them into links.
+
 ## Features
 
 - ✓ 8 MCP tools: create / append / extend / reset password / rename / revoke / delete / search
