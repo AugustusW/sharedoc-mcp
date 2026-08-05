@@ -5,12 +5,17 @@
 [English](./README.md) | 繁體中文
 
 [![npm](https://img.shields.io/npm/v/sharedoc-mcp?color=brightgreen)](https://www.npmjs.com/package/sharedoc-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/sharedoc-mcp?color=brightgreen)](https://www.npmjs.com/package/sharedoc-mcp)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.AugustusW%2Fsharedoc--mcp-orange)](https://registry.modelcontextprotocol.io/v0/servers?search=sharedoc)
 [![Release](https://img.shields.io/github/v/release/AugustusW/sharedoc-mcp?color=brightgreen)](https://github.com/AugustusW/sharedoc-mcp/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.13-blue.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20server-orange.svg)](https://modelcontextprotocol.io/)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-orange.svg)](https://claude.com/claude-code)
 [![Codex](https://img.shields.io/badge/Codex-compatible-black.svg)](https://developers.openai.com/codex/)
+
+[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-1a1a1a?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)
 
 一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **8 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
 
@@ -64,7 +69,19 @@ command = "npx"
 args = ["-y", "sharedoc-mcp@^2"]
 ```
 
-**方式 C — 其他 MCP client：**以 stdio server 執行 `npx -y sharedoc-mcp@^2`。
+**方式 C — Cursor（一鍵）：**點 [**Add to Cursor**](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)，或把設定併進 `~/.cursor/mcp.json`：
+
+```json
+{ "mcpServers": { "sharedoc": { "command": "npx", "args": ["-y", "sharedoc-mcp@^2"] } } }
+```
+
+**方式 D — VS Code（一鍵）：**點 [**Install in VS Code**](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)，或在終端機執行：
+
+```bash
+code --add-mcp '{"name":"sharedoc","command":"npx","args":["-y","sharedoc-mcp@^2"]}'
+```
+
+**方式 E — 其他 MCP client：**以 stdio server 執行 `npx -y sharedoc-mcp@^2`。
 
 > **為什麼用 `@^2`？**裸的 `npx -y sharedoc-mcp` 每次冷啟動解析**最新已發佈版本**——未來的 3.0 可能在你不知情下改變行為（甚至移除工具）。`@^2` 跟得上 2.x 修正、但永不跨 breaking 大版；想零漂移就釘精確版本（`@2.1.0`）。
 

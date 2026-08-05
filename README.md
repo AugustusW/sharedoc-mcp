@@ -5,12 +5,17 @@
 English | [繁體中文](./README.zh-TW.md)
 
 [![npm](https://img.shields.io/npm/v/sharedoc-mcp?color=brightgreen)](https://www.npmjs.com/package/sharedoc-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/sharedoc-mcp?color=brightgreen)](https://www.npmjs.com/package/sharedoc-mcp)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.AugustusW%2Fsharedoc--mcp-orange)](https://registry.modelcontextprotocol.io/v0/servers?search=sharedoc)
 [![Release](https://img.shields.io/github/v/release/AugustusW/sharedoc-mcp?color=brightgreen)](https://github.com/AugustusW/sharedoc-mcp/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522.13-blue.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20server-orange.svg)](https://modelcontextprotocol.io/)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-compatible-orange.svg)](https://claude.com/claude-code)
 [![Codex](https://img.shields.io/badge/Codex-compatible-black.svg)](https://developers.openai.com/codex/)
+
+[![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-1a1a1a?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)
 
 An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **8 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
 
@@ -64,7 +69,19 @@ command = "npx"
 args = ["-y", "sharedoc-mcp@^2"]
 ```
 
-**Option C — any other MCP client:** run `npx -y sharedoc-mcp@^2` as a stdio server.
+**Option C — Cursor (one click):** hit [**Add to Cursor**](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D), or merge into `~/.cursor/mcp.json`:
+
+```json
+{ "mcpServers": { "sharedoc": { "command": "npx", "args": ["-y", "sharedoc-mcp@^2"] } } }
+```
+
+**Option D — VS Code (one click):** hit [**Install in VS Code**](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D), or from a terminal:
+
+```bash
+code --add-mcp '{"name":"sharedoc","command":"npx","args":["-y","sharedoc-mcp@^2"]}'
+```
+
+**Option E — any other MCP client:** run `npx -y sharedoc-mcp@^2` as a stdio server.
 
 > **Why `@^2`?** A bare `npx -y sharedoc-mcp` resolves the **latest published version** on every cold start — a future 3.0 could change behavior (or remove a tool) under you without warning. `@^2` follows 2.x fixes but never crosses a breaking major; pin an exact version (`@2.1.0`) if you want zero drift.
 
