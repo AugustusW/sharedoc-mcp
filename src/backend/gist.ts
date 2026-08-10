@@ -125,6 +125,20 @@ export class GistBackend implements ShareBackend {
     this.store.update(docId, patch, this.now());
   }
 
+  /** Replace content entirely (≠ appendDoc): a straight PATCH, no need to fetch and
+   *  concatenate the current gist content first. Local index (contentHash + excerpt)
+   *  is only updated AFTER the PATCH succeeds — same ordering as appendDoc, so a
+   *  failed PATCH can't leave locally-searchable text that isn't actually published. */
+  async updateContent(docId: string, content: string): Promise<void> {
+    await this.lazyCleanup();
+    const e = this.mustGet(docId);
+    const filename = e.filename ?? `${slugify(e.title)}.md`;
+    const hash = createHash('sha256').update(`${e.title}\0${content}\0${e.author ?? ''}`).digest('hex');
+    const body = JSON.stringify({ files: { [filename]: { content } } });
+    await this.gh(['api', `gists/${docId}`, '-X', 'PATCH', '--input', '-'], body);
+    this.store.update(docId, { contentHash: hash, excerpt: content.slice(0, 200) }, this.now());
+  }
+
   async extendDoc(docId: string, hours: number): Promise<void> {
     this.mustGet(docId);
     this.store.update(docId, {

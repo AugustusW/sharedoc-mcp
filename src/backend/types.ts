@@ -42,6 +42,9 @@ export class BackendError extends Error {}
 export interface ShareBackend {
   createDoc(p: CreateDocParams): Promise<{ url: string }>;
   appendDoc(docId: string, content: string, updatedUser?: string): Promise<void>;
+  /** Replace the entire content, leaving title/password/expiry untouched. Idempotent:
+   *  calling it twice with the same content is a no-op the second time (≠ appendDoc). */
+  updateContent(docId: string, content: string, updatedUser?: string): Promise<void>;
   extendDoc(docId: string, hours: number): Promise<void>;
   resetPassword(docId: string, newPassword: string | null, updatedUser?: string): Promise<void>;
   updateTitle(docId: string, newTitle: string, updatedUser?: string): Promise<void>;

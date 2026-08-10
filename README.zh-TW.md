@@ -17,7 +17,7 @@
 [![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-1a1a1a?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)
 
-一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **8 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
+一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **9 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
 
 > 後端不支援某參數時（如 gist 收到 `password`）會回明確錯誤，不會靜默忽略。
 
@@ -40,7 +40,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 
 ## 特色
 
-- ✓ 8 個 MCP 工具：建立／追加／延長／改密碼／改標題／撤銷／刪除／搜尋
+- ✓ 9 個 MCP 工具：建立／追加／取代內容／延長／改密碼／改標題／撤銷／刪除／搜尋
 - ✓ `sharedoc-mcp serve` daemon 模式——MCP client 關掉後 selfhost 連結照樣活著
 - ✓ 內容搜尋：用文件裡寫了什麼找回舊連結，不只靠標題
 - ✓ `GET /healthz`——帶身分識別的健檢端點，外部監控／自動重啟直接掛
@@ -53,7 +53,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 - ✓ Viewer **只 bind 127.0.0.1**，所有回應帶完整安全 headers（CSP `default-src 'none'`、nosniff、禁 iframe、no-referrer、no-store）——對外曝光交給你自己控制的 tunnel（食譜見下）
 - ✓ 本地索引支援 `search_shared_docs` 與建立去重（5 分鐘內相同的無保護重試回同一 URL；補加密碼/期限的重試一律建新文件）
 - ✓ 兩個 MCP client 可共用同一資料目錄：SQLite WAL + busy timeout、埠衝突優雅共存
-- ✓ 70 個離線測試；乾淨 checkout `npm test` 直接綠
+- ✓ 87 個離線測試；乾淨 checkout `npm test` 直接綠
 
 ## 安裝
 
@@ -177,12 +177,13 @@ claude mcp add sharedoc --scope user \
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | 本地索引（gist） |
 | `MCP_CALLER` | — | 建立文件的預設作者歸因 |
 
-## 8 個工具
+## 9 個工具
 
 | 工具 | 功能 |
 |---|---|
 | `create_shared_doc` | 標題 + Markdown（+ 選填密碼 / `expires_in_hours` / 作者）→ 分享 URL |
 | `append_to_shared_doc` | 尾端追加 Markdown（非冪等——重試會加兩次） |
+| `update_shared_doc_content` | 取代整份內容（標題/密碼/期限不變）——冪等，可安全重試 |
 | `extend_shared_doc` | 延長期限 N 小時 |
 | `reset_shared_doc_password` | 設定／更換／移除（null）密碼（僅 selfhost） |
 | `update_shared_doc_title` | 改標題 |
@@ -211,7 +212,7 @@ claude mcp add sharedoc --scope user \
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # 先 build 再跑 70 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
+npm test        # 先 build 再跑 87 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
 ```
 
 版本規則：每次釋出 bump `package.json` 的 `version`、加一筆 [CHANGELOG](./CHANGELOG.md)、打 git tag 發 [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp)。
@@ -219,7 +220,7 @@ npm test        # 先 build 再跑 70 個離線測試——gh CLI 以 mock 替�
 
 ## 狀態
 
-v2.1.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 70 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
+v2.1.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 87 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
 
 - macOS（Apple Silicon）、Node v25——gist + selfhost 兩後端
 

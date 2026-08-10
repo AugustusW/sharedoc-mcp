@@ -6,6 +6,7 @@ function stubBackend(over: Partial<ShareBackend> = {}): ShareBackend {
   return {
     createDoc: async () => ({ url: 'https://gist.github.com/u/id1' }),
     appendDoc: async () => {},
+    updateContent: async () => {},
     extendDoc: async () => {},
     resetPassword: async () => {},
     updateTitle: async () => {},
@@ -52,18 +53,29 @@ describe('tool handlers', () => {
     expect(r).toEqual({ ok: true, doc_id: 'f00dfeed' });
   });
 
+  it('update_shared_doc_content passes extracted docId + content and returns {ok, doc_id}', async () => {
+    let gotId = '', gotContent = '';
+    const h = buildToolHandlers(stubBackend({
+      updateContent: async (id, content) => { gotId = id; gotContent = content; },
+    }));
+    const r = await h.update_shared_doc_content({ doc_id_or_url: 'https://gist.github.com/u/f00dfeed', content: 'new body' });
+    expect(gotId).toBe('f00dfeed');
+    expect(gotContent).toBe('new body');
+    expect(r).toEqual({ ok: true, doc_id: 'f00dfeed' });
+  });
+
   it('search validates status enum', async () => {
     const h = buildToolHandlers(stubBackend());
     const r = await h.search_shared_docs({ status: 'bogus' }) as { error: string };
     expect(r.error).toMatch(/status/);
   });
 
-  it('all 8 tools exist (delete added; create_shared_file stays removed)', () => {
+  it('all 9 tools exist (update_shared_doc_content added; create_shared_file stays removed)', () => {
     const h = buildToolHandlers(stubBackend());
     expect(Object.keys(h).sort()).toEqual([
       'append_to_shared_doc', 'create_shared_doc', 'delete_shared_doc',
       'extend_shared_doc', 'reset_shared_doc_password', 'revoke_shared_doc',
-      'search_shared_docs', 'update_shared_doc_title',
+      'search_shared_docs', 'update_shared_doc_content', 'update_shared_doc_title',
     ]);
   });
 

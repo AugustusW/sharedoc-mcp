@@ -170,6 +170,17 @@ export class SelfHostBackend implements ShareBackend {
     this.db.prepare(`UPDATE docs SET content = COALESCE(content, '') || ?, updatedAt = ? WHERE docId = ?`).run(content, this.now().toISOString(), docId);
   }
 
+  /** Replace content entirely (≠ appendDoc). Recomputes contentHash from the SAME
+   *  title+content+author formula createDoc uses, so createDoc's dedup logic still
+   *  matches a duplicate submission against the new content, not the stale one. */
+  async updateContent(docId: string, content: string): Promise<void> {
+    this.mustActive(docId);
+    const row = this.db.prepare(`SELECT title, author FROM docs WHERE docId = ?`).get(docId) as { title: string; author: string | null };
+    const hash = createHash('sha256').update(`${row.title}\0${content}\0${row.author ?? ''}`).digest('hex');
+    this.db.prepare(`UPDATE docs SET content = ?, contentHash = ?, updatedAt = ? WHERE docId = ?`).run(
+      content, hash, this.now().toISOString(), docId);
+  }
+
   async extendDoc(docId: string, hours: number): Promise<void> {
     this.mustActive(docId);
     this.db.prepare(`UPDATE docs SET expiresAt = ?, updatedAt = ? WHERE docId = ?`).run(

@@ -17,7 +17,7 @@ English | [繁體中文](./README.zh-TW.md)
 [![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-1a1a1a?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)
 
-An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **8 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
+An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **9 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
 
 > When a backend can't honor a parameter (e.g. `password` on gist), it returns a clear error instead of silently ignoring it.
 
@@ -40,7 +40,7 @@ content lives in chat scroll          revoke / extend / append later
 
 ## Features
 
-- ✓ 8 MCP tools: create / append / extend / reset password / rename / revoke / delete / search
+- ✓ 9 MCP tools: create / append / update content / extend / reset password / rename / revoke / delete / search
 - ✓ `sharedoc-mcp serve` daemon mode — selfhost links keep working after your MCP client closes
 - ✓ Content search: find old share links by what's in them, not just the title
 - ✓ `GET /healthz` — identity-aware health probe for external monitoring / restart automation
@@ -53,7 +53,7 @@ content lives in chat scroll          revoke / extend / append later
 - ✓ Viewer binds **127.0.0.1 only**, answers with a strict security-header set (CSP `default-src 'none'`, nosniff, DENY framing, no-referrer, no-store) — exposure is a tunnel you control (recipes below)
 - ✓ Local index for `search_shared_docs` + create dedup (identical unprotected retries within 5 min return the same URL; a retry that adds a password/expiry always creates a new doc)
 - ✓ Two MCP clients can share one data dir: SQLite WAL + busy timeout, graceful port sharing
-- ✓ 70 offline tests; `npm test` passes on a clean checkout
+- ✓ 87 offline tests; `npm test` passes on a clean checkout
 
 ## Install
 
@@ -179,12 +179,13 @@ Environment variables:
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | local index (gist) |
 | `MCP_CALLER` | — | default author attribution for created docs |
 
-## The 8 tools
+## The 9 tools
 
 | Tool | Does |
 |---|---|
 | `create_shared_doc` | title + Markdown (+ optional password / `expires_in_hours` / author) → share URL |
 | `append_to_shared_doc` | append Markdown (not idempotent — a retry appends twice) |
+| `update_shared_doc_content` | replace the entire content (title/password/expiry unchanged) — idempotent, safe to retry |
 | `extend_shared_doc` | extend expiry by N hours |
 | `reset_shared_doc_password` | set / change / remove (null) the password (selfhost only) |
 | `update_shared_doc_title` | rename |
@@ -213,7 +214,7 @@ Data flow, by backend:
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # builds, then runs 70 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
+npm test        # builds, then runs 87 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
 ```
 
 Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp).
@@ -221,7 +222,7 @@ Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](
 
 ## Status
 
-v2.1.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 70 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+v2.1.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 87 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
 
 - macOS (Apple Silicon), Node v25 — gist + selfhost backends
 

@@ -1,6 +1,13 @@
+import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
 import { BackendError, type ShareBackend } from './backend/types.js';
+
+// createRequire (not a JSON import) because the build is plain `tsc` with no
+// resolveJsonModule/tsup step — this works unmodified from both src/ (ts-node/vitest,
+// one level under repo root) and the published dist/ (one level under the npm package
+// root, where package.json ships automatically regardless of the "files" allowlist).
+const PACKAGE_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 const CALLER_DEFAULT = 'sharedoc-mcp';
 
@@ -39,6 +46,11 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
     append_to_shared_doc: wrap(async a => {
       const id = extractDocId(String(a.doc_id_or_url));
       await backend.appendDoc(id, String(a.content), caller(a.updated_user as string));
+      return { ok: true, doc_id: id };
+    }),
+    update_shared_doc_content: wrap(async a => {
+      const id = extractDocId(String(a.doc_id_or_url));
+      await backend.updateContent(id, String(a.content), caller(a.updated_user as string));
       return { ok: true, doc_id: id };
     }),
     extend_shared_doc: wrap(async a => {
@@ -102,6 +114,10 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     description: 'Append content to an existing shared doc. NOT idempotent: a retry appends twice — check with search_shared_docs before retrying. Accepts a doc id or URL.',
     inputSchema: { doc_id_or_url: z.string(), content: z.string(), updated_user: optStr },
   },
+  update_shared_doc_content: {
+    description: 'Replace the entire content of an existing shared doc (title, password, and expiry are left unchanged). Idempotent: unlike append_to_shared_doc, calling it twice with the same content is safe to retry — the result is the same either way. Accepts a doc id or URL.',
+    inputSchema: { doc_id_or_url: z.string(), content: z.string(), updated_user: optStr },
+  },
   extend_shared_doc: {
     description: 'Extend a doc expiry by N hours (for "N days" multiply by 24 first). On the gist backend expiry is enforced lazily (cleanup on next use).',
     inputSchema: { doc_id_or_url: z.string(), hours: z.number() },
@@ -134,7 +150,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
 };
 
 export function buildServer(backend: ShareBackend): McpServer {
-  const server = new McpServer({ name: 'sharedoc', version: '2.1.0' });
+  const server = new McpServer({ name: 'sharedoc', version: PACKAGE_VERSION });
   const handlers = buildToolHandlers(backend);
   for (const [name, meta] of Object.entries(TOOL_SCHEMAS)) {
     server.registerTool(name, meta, async (args: Record<string, unknown>) => ({

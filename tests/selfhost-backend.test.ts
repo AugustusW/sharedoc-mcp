@@ -125,6 +125,61 @@ describe('SelfHostBackend doc ops', () => {
   });
 });
 
+describe('SelfHostBackend.updateContent (replace, not append)', () => {
+  it('replaces content entirely and recomputes contentHash; title/password/expiry untouched', async () => {
+    const { backend } = makeBackend();
+    const { url } = await backend.createDoc({ title: 'T', content: 'old', password: 'pw', expiresInHours: 24, author: 'a' });
+    const id = url.split('/').pop()!;
+    const before = backend.docRow(id)!;
+    await backend.updateContent(id, 'new content');
+    const after = backend.docRow(id)!;
+    expect(after.content).toBe('new content'); // replaced, not "oldnew content"
+    expect(after.title).toBe('T');
+    expect(after.passwordHash).toBe(before.passwordHash);
+    expect(after.expiresAt).toBe(before.expiresAt);
+  });
+
+  it('calling twice with the same content is idempotent (same stored content both times)', async () => {
+    const { backend } = makeBackend();
+    const id = (await backend.createDoc({ title: 'T', content: 'a' })).url.split('/').pop()!;
+    await backend.updateContent(id, 'same');
+    const first = backend.docRow(id)!.content;
+    await backend.updateContent(id, 'same');
+    const second = backend.docRow(id)!.content;
+    expect(first).toBe('same');
+    expect(second).toBe('same');
+  });
+
+  it('empty content is allowed (consistent with create/append accepting empty strings)', async () => {
+    const { backend } = makeBackend();
+    const id = (await backend.createDoc({ title: 'T', content: 'a' })).url.split('/').pop()!;
+    await backend.updateContent(id, '');
+    expect(backend.docRow(id)!.content).toBe('');
+  });
+
+  it('recomputes contentHash to match the new content (verified via createDoc dedup)', async () => {
+    const { backend } = makeBackend();
+    const id = (await backend.createDoc({ title: 'T', content: 'old', author: 'a' })).url.split('/').pop()!;
+    await backend.updateContent(id, 'new content');
+    // createDoc dedups on title+content+author hash within 5 minutes — if the stored
+    // contentHash still reflected 'old', this would NOT dedup to the updated doc.
+    const dup = await backend.createDoc({ title: 'T', content: 'new content', author: 'a' });
+    expect(dup.url).toContain(id);
+  });
+
+  it('unknown id rejects with not found', async () => {
+    const { backend } = makeBackend();
+    await expect(backend.updateContent('3f2a8c1e-1111-2222-3333-444455556666', 'x')).rejects.toThrow(/not found/);
+  });
+
+  it('revoked doc rejects', async () => {
+    const { backend } = makeBackend();
+    const id = (await backend.createDoc({ title: 'T', content: 'c' })).url.split('/').pop()!;
+    await backend.revokeDoc(id);
+    await expect(backend.updateContent(id, 'x')).rejects.toThrow(/revoked/);
+  });
+});
+
 describe('SelfHostBackend.deleteDoc (hard delete ≠ revoke)', () => {
   it('removes the row entirely — docRow gone, search gone, works on any status', async () => {
     const { backend } = makeBackend();

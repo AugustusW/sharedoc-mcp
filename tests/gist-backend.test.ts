@@ -117,6 +117,60 @@ describe('GistBackend.appendDoc', () => {
   });
 });
 
+describe('GistBackend.updateContent', () => {
+  it('PATCHes the full replacement content (no fetch-current, unlike appendDoc)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'My Report', content: '# hi' });
+    fake.calls.length = 0;
+    await backend.updateContent('f00dfeed', 'brand new body');
+    const patch = fake.calls.find(c => c.argv.includes('PATCH'))!;
+    expect(patch.argv.slice(0, 3)).toEqual(['gh', 'api', 'gists/f00dfeed']);
+    expect(JSON.parse(patch.input!).files['my-report.md'].content).toBe('brand new body');
+    // updateContent must not need a GET of current content the way appendDoc does
+    expect(fake.calls.some(c => c.argv[1] === 'api' && !c.argv.includes('PATCH'))).toBe(false);
+  });
+
+  it('idempotent: calling twice with the same content sends the same PATCH body both times', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'My Report', content: '# hi' });
+    await backend.updateContent('f00dfeed', 'same body');
+    await backend.updateContent('f00dfeed', 'same body');
+    const patches = fake.calls.filter(c => c.argv.includes('PATCH'));
+    expect(patches.length).toBe(2);
+    expect(JSON.parse(patches[0].input!).files['my-report.md'].content).toBe('same body');
+    expect(JSON.parse(patches[1].input!).files['my-report.md'].content).toBe('same body');
+  });
+
+  it('updates the local search excerpt to the new content (not old + new)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'Report', content: 'quarterly budget details' });
+    await backend.updateContent('f00dfeed', 'annual headcount summary');
+    expect((await backend.searchDocs({ contentQuery: 'headcount' })).length).toBe(1);
+    expect((await backend.searchDocs({ contentQuery: 'budget' })).length).toBe(0);
+  });
+
+  it('unknown docId rejects (not in local index)', async () => {
+    const { backend } = makeBackend(makeFake({}));
+    await expect(backend.updateContent('nope', 'x')).rejects.toThrow(/index/);
+  });
+
+  it('failed PATCH does not update the local excerpt (no drift from what is actually published)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { store, backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'Report', content: 'quarterly budget details' });
+    const run: CommandRunner = async (argv, input) => {
+      if (argv.includes('PATCH')) return { stdout: '', stderr: 'HTTP 500', exitCode: 1 };
+      return fake.run(argv, input);
+    };
+    const b2 = new GistBackend(store, run, () => T0);
+    await expect(b2.updateContent('f00dfeed', 'new-ghost-text')).rejects.toThrow();
+    expect((await b2.searchDocs({ contentQuery: 'new-ghost-text' })).length).toBe(0);
+  });
+});
+
 describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
   it('revoke deletes the gist and marks index revoked (hard-delete)', async () => {
     const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
