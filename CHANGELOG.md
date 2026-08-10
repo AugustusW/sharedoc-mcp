@@ -3,6 +3,48 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
+## [2.2.0] - 2026-08-11
+
+### Added
+- **`update_shared_doc_content`** — replace an existing shared doc's entire content
+  (title, password, and expiry stay untouched). Idempotent by design: calling it twice
+  with the same content is safe to retry, unlike `append_to_shared_doc`. Selfhost
+  recomputes `contentHash` from the new content so `create_shared_doc`'s dedup logic
+  keeps matching correctly; gist backend reuses the same PATCH mechanism as append but
+  replaces the file content wholesale instead of fetching-and-concatenating
+
+### Fixed
+- **`buildServer` no longer hardcodes `version: '2.1.0'`** in the `McpServer`
+  constructor — every release since 2.1.0 was reporting a stale version to MCP
+  clients. Now read from `package.json` at runtime via `createRequire` (plain `tsc`
+  build, no bundler/resolveJsonModule step), so the reported version always matches
+  the published package
+- CHANGELOG: backfilled the missing 2.1.3 and 2.1.4 entries below
+
+## [2.1.4] - 2026-08-03
+
+### Fixed
+- `mcpName` / `server.json` `name` namespace corrected to `io.github.AugustusW/sharedoc-mcp`
+  (was lowercased `io.github.augustusw/...` in 2.1.3) to match the registry's expected
+  GitHub-namespace casing
+- `server.json` `description` trimmed to ≤100 characters, satisfying the MCP Registry
+  schema's length limit
+
+## [2.1.3] - 2026-08-03
+
+### Added
+- **MCP Registry metadata**: `mcpName` field in `package.json` and a new `server.json`
+  manifest (name, description, repository, version, npm package identifier, stdio
+  transport, `SHAREDOC_BACKEND`/`SHAREDOC_PUBLIC_URL` environment variable docs) —
+  required for listing on the MCP Registry
+
+### Infrastructure
+- **npm trusted publishing (OIDC)** via a new `publish.yml` GitHub Actions workflow —
+  pushing a `v*` tag now authenticates directly with npm through GitHub's OIDC token
+  (no long-lived npm token, no 2FA prompt) and publishes with provenance attestation
+- `repository` field added to `package.json` — required by npm's provenance validation
+  for the trusted-publishing flow above
+
 ## [2.1.2] - 2026-08-02
 
 Search-engine noindex hardening.

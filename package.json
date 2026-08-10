@@ -1,6 +1,6 @@
 {
   "name": "sharedoc-mcp",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "mcpName": "io.github.AugustusW/sharedoc-mcp",
   "description": "Share agent-generated Markdown as links — GitHub gists today, your own server tomorrow. An MCP server.",
   "license": "MIT",
