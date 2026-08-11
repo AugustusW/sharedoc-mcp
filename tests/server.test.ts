@@ -12,8 +12,8 @@ function stubBackend(over: Partial<ShareBackend> = {}): ShareBackend {
     updateTitle: async () => {},
     revokeDoc: async () => {},
     deleteDoc: async () => {},
-    searchDocs: async () => [],
-    capabilities: () => ({ password: 'none', expiry: 'lazy', revoke: 'hard-delete' }),
+    searchDocs: async () => ({ results: [], hasMore: false }),
+    capabilities: () => ({ password: 'none', expiry: 'lazy', revoke: 'hard-delete', stats: 'unavailable' }),
     ...over,
   };
 }
@@ -97,8 +97,36 @@ describe('tool handlers', () => {
 
   it('search passes content_query through', async () => {
     let seen: unknown;
-    const h = buildToolHandlers(stubBackend({ searchDocs: async p => { seen = p; return []; } }));
+    const h = buildToolHandlers(stubBackend({
+      searchDocs: async p => { seen = p; return { results: [], hasMore: false }; },
+    }));
     await h.search_shared_docs({ content_query: 'budget' });
     expect((seen as { contentQuery?: string }).contentQuery).toBe('budget');
+  });
+
+  it('search passes offset through (default 0) and forwards hasMore in the response', async () => {
+    let seen: unknown;
+    const h = buildToolHandlers(stubBackend({
+      searchDocs: async p => { seen = p; return { results: [], hasMore: true }; },
+    }));
+    const r = await h.search_shared_docs({});
+    expect((seen as { offset?: number }).offset).toBe(0);
+    expect(r).toEqual({ results: [], hasMore: true });
+
+    const h2 = buildToolHandlers(stubBackend({
+      searchDocs: async p => { seen = p; return { results: [], hasMore: false }; },
+    }));
+    await h2.search_shared_docs({ offset: 40 });
+    expect((seen as { offset?: number }).offset).toBe(40);
+  });
+
+  it('search rejects a negative offset without calling the backend', async () => {
+    let called = false;
+    const h = buildToolHandlers(stubBackend({
+      searchDocs: async () => { called = true; return { results: [], hasMore: false }; },
+    }));
+    const r = await h.search_shared_docs({ offset: -1 }) as { error: string };
+    expect(r.error).toMatch(/offset/);
+    expect(called).toBe(false);
   });
 });

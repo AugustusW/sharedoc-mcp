@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import { SelfHostBackend } from '../src/backend/selfhost.js';
 import { BackendError } from '../src/backend/types.js';
@@ -58,7 +59,7 @@ describe('SelfHostBackend.createDoc', () => {
   it('capabilities: full semantics', () => {
     const { backend } = makeBackend();
     expect(backend.capabilities()).toEqual(
-      { password: 'server', expiry: 'enforced', revoke: 'grace' });
+      { password: 'server', expiry: 'enforced', revoke: 'grace', stats: 'tracked' });
   });
 });
 
@@ -118,10 +119,10 @@ describe('SelfHostBackend doc ops', () => {
     const { backend } = makeBackend();
     await backend.createDoc({ title: 'Weekly Report', content: 'x' });
     await backend.createDoc({ title: 'Other', content: 'y' });
-    const rows = await backend.searchDocs({ titleQuery: 'weekly' });
-    expect(rows.length).toBe(1);
-    expect(Object.keys(rows[0]).sort()).toEqual(
-      ['author', 'createdAt', 'docId', 'expiresAt', 'status', 'title', 'updatedAt', 'url']);
+    const { results } = await backend.searchDocs({ titleQuery: 'weekly' });
+    expect(results.length).toBe(1);
+    expect(Object.keys(results[0]).sort()).toEqual(
+      ['author', 'createdAt', 'docId', 'expiresAt', 'lastViewedAt', 'status', 'title', 'updatedAt', 'url', 'viewCount']);
   });
 });
 
@@ -186,7 +187,7 @@ describe('SelfHostBackend.deleteDoc (hard delete ≠ revoke)', () => {
     const id = (await backend.createDoc({ title: 'Gone', content: 'x' })).url.split('/').pop()!;
     await backend.deleteDoc(id);
     expect(backend.docRow(id)).toBeUndefined();
-    expect((await backend.searchDocs({})).length).toBe(0);
+    expect((await backend.searchDocs({})).results.length).toBe(0);
 
     const rid = (await backend.createDoc({ title: 'R', content: 'y' })).url.split('/').pop()!;
     await backend.revokeDoc(rid);
@@ -205,9 +206,9 @@ describe('SelfHostBackend content search', () => {
     const { backend } = makeBackend();
     await backend.createDoc({ title: 'Alpha', content: 'the quarterly budget line' });
     await backend.createDoc({ title: 'Beta', content: 'vacation photos' });
-    const rows = await backend.searchDocs({ contentQuery: 'budget' });
-    expect(rows.map(r => r.title)).toEqual(['Alpha']);
-    expect((await backend.searchDocs({ titleQuery: 'beta' })).length).toBe(1);
+    const { results } = await backend.searchDocs({ contentQuery: 'budget' });
+    expect(results.map(r => r.title)).toEqual(['Alpha']);
+    expect((await backend.searchDocs({ titleQuery: 'beta' })).results.length).toBe(1);
   });
 });
 
@@ -247,5 +248,102 @@ describe('SelfHostBackend rate limiter (SQLite-backed, failure-counting)', () =>
       publicUrl: 'http://127.0.0.1:8377', now: () => new Date(T0.getTime() + 61_000),
     });
     expect(later.rateBlocked('k')).toBe(false);
+  });
+});
+
+describe('SelfHostBackend schema migration (v2.2.0: view stats columns)', () => {
+  it('upgrades a pre-2.2.0 DB (no viewCount/lastViewedAt columns) without data loss', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdh-mig-'));
+    const dbPath = join(dir, 'docs.db');
+    // Hand-build the schema exactly as it existed at user_version 2 (pre-2.2.0) —
+    // migrations 0 and 1 from selfhost.ts's migrate(), reproduced here so the test
+    // fails loudly if a shipped migration is ever edited instead of appended to.
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`CREATE TABLE docs (
+      docId TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT,
+      passwordHash TEXT, status TEXT NOT NULL DEFAULT 'active',
+      author TEXT, contentHash TEXT NOT NULL,
+      createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+      expiresAt TEXT, revokedAt TEXT
+    );
+    CREATE TABLE rateLimits (
+      key TEXT PRIMARY KEY, windowStart INTEGER NOT NULL, count INTEGER NOT NULL
+    );
+    CREATE INDEX idx_docs_status ON docs(status);`);
+    raw.prepare(`INSERT INTO docs (docId, title, content, status, contentHash, createdAt, updatedAt) VALUES (?, ?, ?, 'active', ?, ?, ?)`)
+      .run('11111111-1111-1111-1111-111111111111', 'Pre-existing', 'old body', 'h', T0.toISOString(), T0.toISOString());
+    raw.exec(`PRAGMA user_version = 2`);
+    raw.close();
+
+    const backend = new SelfHostBackend({ dbPath, publicUrl: 'http://127.0.0.1:8377', now: () => T0 });
+    const row = backend.docRow('11111111-1111-1111-1111-111111111111')!;
+    expect(row.title).toBe('Pre-existing');
+    expect(row.content).toBe('old body'); // no data loss on the pre-existing row
+
+    const check = new DatabaseSync(dbPath);
+    const uv = (check.prepare(`PRAGMA user_version`).get() as { user_version: number }).user_version;
+    expect(uv).toBe(3); // the new migration ran, and only once
+    const cols = check.prepare(`SELECT viewCount, lastViewedAt FROM docs WHERE docId = ?`)
+      .get('11111111-1111-1111-1111-111111111111') as { viewCount: number; lastViewedAt: string | null };
+    expect(cols.viewCount).toBe(0);       // NOT NULL DEFAULT 0 backfilled the existing row
+    expect(cols.lastViewedAt).toBeNull(); // never viewed yet
+    check.close();
+  });
+});
+
+describe('SelfHostBackend view stats (recordView)', () => {
+  it('increments viewCount and sets lastViewedAt, surfaced via searchDocs', async () => {
+    const { backend } = makeBackend();
+    const id = (await backend.createDoc({ title: 'Viewed', content: 'x' })).url.split('/').pop()!;
+    let { results } = await backend.searchDocs({ titleQuery: 'Viewed' });
+    expect(results[0].viewCount).toBe(0);
+    expect(results[0].lastViewedAt).toBeNull();
+
+    backend.recordView(id);
+    backend.recordView(id);
+    ({ results } = await backend.searchDocs({ titleQuery: 'Viewed' }));
+    expect(results[0].viewCount).toBe(2);
+    expect(results[0].lastViewedAt).toBe(T0.toISOString());
+  });
+
+  it('is a best-effort no-op on an unknown docId (never throws)', () => {
+    const { backend } = makeBackend();
+    expect(() => backend.recordView('3f2a8c1e-1111-2222-3333-444455556666')).not.toThrow();
+  });
+});
+
+describe('SelfHostBackend.searchDocs offset pagination', () => {
+  it('hasMore true mid-list, false on the last page; offset pages through newest-first order', async () => {
+    // Advancing clock (not the frozen T0 helper): createDoc always stamps createdAt
+    // from now(), so a frozen clock would give all 5 docs an identical timestamp and
+    // leave "newest first" order undefined (SQLite ties aren't ordering-guaranteed).
+    let t = T0.getTime();
+    const dir = mkdtempSync(join(tmpdir(), 'sdh-page-'));
+    const backend = new SelfHostBackend({
+      dbPath: join(dir, 'docs.db'), publicUrl: 'http://127.0.0.1:8377', now: () => new Date(t),
+    });
+    for (let i = 0; i < 5; i++) {
+      await backend.createDoc({ title: `Page ${i}`, content: 'x', author: `p${i}` });
+      t += 1000;
+    }
+    const page1 = await backend.searchDocs({ limit: 2, offset: 0 });
+    expect(page1.results.map(r => r.title)).toEqual(['Page 4', 'Page 3']);
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await backend.searchDocs({ limit: 2, offset: 2 });
+    expect(page2.results.map(r => r.title)).toEqual(['Page 2', 'Page 1']);
+    expect(page2.hasMore).toBe(true);
+
+    const page3 = await backend.searchDocs({ limit: 2, offset: 4 });
+    expect(page3.results.map(r => r.title)).toEqual(['Page 0']);
+    expect(page3.hasMore).toBe(false);
+  });
+
+  it('offset past the end returns an empty page with hasMore false', async () => {
+    const { backend } = makeBackend();
+    await backend.createDoc({ title: 'Only', content: 'x' });
+    const page = await backend.searchDocs({ offset: 50 });
+    expect(page.results).toEqual([]);
+    expect(page.hasMore).toBe(false);
   });
 });

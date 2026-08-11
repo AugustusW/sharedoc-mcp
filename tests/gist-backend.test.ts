@@ -148,8 +148,8 @@ describe('GistBackend.updateContent', () => {
     const { backend } = makeBackend(fake);
     await backend.createDoc({ title: 'Report', content: 'quarterly budget details' });
     await backend.updateContent('f00dfeed', 'annual headcount summary');
-    expect((await backend.searchDocs({ contentQuery: 'headcount' })).length).toBe(1);
-    expect((await backend.searchDocs({ contentQuery: 'budget' })).length).toBe(0);
+    expect((await backend.searchDocs({ contentQuery: 'headcount' })).results.length).toBe(1);
+    expect((await backend.searchDocs({ contentQuery: 'budget' })).results.length).toBe(0);
   });
 
   it('unknown docId rejects (not in local index)', async () => {
@@ -167,7 +167,7 @@ describe('GistBackend.updateContent', () => {
     };
     const b2 = new GistBackend(store, run, () => T0);
     await expect(b2.updateContent('f00dfeed', 'new-ghost-text')).rejects.toThrow();
-    expect((await b2.searchDocs({ contentQuery: 'new-ghost-text' })).length).toBe(0);
+    expect((await b2.searchDocs({ contentQuery: 'new-ghost-text' })).results.length).toBe(0);
   });
 });
 
@@ -203,7 +203,7 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
   it('capabilities reflect gist semantics', () => {
     const { backend } = makeBackend(makeFake({}));
     expect(backend.capabilities()).toEqual(
-      { password: 'none', expiry: 'lazy', revoke: 'hard-delete' });
+      { password: 'none', expiry: 'lazy', revoke: 'hard-delete', stats: 'unavailable' });
   });
 
   it('deleteDoc removes the gist AND the index entry entirely (search gone)', async () => {
@@ -213,7 +213,7 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     await backend.deleteDoc('f00dfeed');
     expect(fake.calls.some(c => c.argv[2] === 'delete' && c.argv.includes('--yes'))).toBe(true);
     expect(store.get('f00dfeed')).toBeUndefined();
-    expect((await backend.searchDocs({})).length).toBe(0);
+    expect((await backend.searchDocs({})).results.length).toBe(0);
   });
 
   it('deleteDoc: real gh failure propagates and KEEPS the index entry (no orphaned live gist)', async () => {
@@ -251,7 +251,7 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     };
     const b2 = new GistBackend(store, run, () => T0);
     await expect(b2.appendDoc('f00dfeed', ' ghost-text')).rejects.toThrow();
-    expect((await b2.searchDocs({ contentQuery: 'ghost-text' })).length).toBe(0);
+    expect((await b2.searchDocs({ contentQuery: 'ghost-text' })).results.length).toBe(0);
   });
 
   it('append tops up a short excerpt so later content search can find it', async () => {
@@ -262,7 +262,7 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     const { backend } = makeBackend(fake);
     await backend.createDoc({ title: 'Stub', content: 'x' });
     await backend.appendDoc('f00dfeed', ' appended-budget-notes');
-    expect((await backend.searchDocs({ contentQuery: 'appended-budget' })).length).toBe(1);
+    expect((await backend.searchDocs({ contentQuery: 'appended-budget' })).results.length).toBe(1);
   });
 
   it('deleteDoc on a revoked entry still cleans the index (gist already gone)', async () => {
@@ -278,16 +278,65 @@ describe('GistBackend.revokeDoc / extendDoc / lazy cleanup', () => {
     const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
     const { backend } = makeBackend(fake);
     await backend.createDoc({ title: 'Report', content: 'quarterly budget details…' });
-    expect((await backend.searchDocs({ contentQuery: 'budget' })).length).toBe(1);
-    expect((await backend.searchDocs({ contentQuery: 'nonexistent' })).length).toBe(0);
+    expect((await backend.searchDocs({ contentQuery: 'budget' })).results.length).toBe(1);
+    expect((await backend.searchDocs({ contentQuery: 'nonexistent' })).results.length).toBe(0);
   });
 
   it('searchDocs returns DocRecord shape only (no internal fields)', async () => {
     const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
     const { backend } = makeBackend(fake);
     await backend.createDoc({ title: 't', content: 'c' });
-    const [row] = await backend.searchDocs({});
+    const [row] = (await backend.searchDocs({})).results;
     expect(Object.keys(row).sort()).toEqual(
-      ['author', 'createdAt', 'docId', 'expiresAt', 'status', 'title', 'updatedAt', 'url']);
+      ['author', 'createdAt', 'docId', 'expiresAt', 'lastViewedAt', 'status', 'title', 'updatedAt', 'url', 'viewCount']);
+  });
+
+  it('viewCount/lastViewedAt are always null (GitHub exposes no gist view-count data)', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 't', content: 'c' });
+    const [row] = (await backend.searchDocs({})).results;
+    expect(row.viewCount).toBeNull();
+    expect(row.lastViewedAt).toBeNull();
+  });
+});
+
+describe('GistBackend.searchDocs offset pagination', () => {
+  it('hasMore true mid-list, false on the last page; offset pages through newest-first order', async () => {
+    // Each doc needs a DISTINCT gist URL/docId (unlike other tests here, which reuse one
+    // fixed GIST_URL) — otherwise every createDoc would collide on the same docId and
+    // overwrite a single index entry instead of producing 5. Advancing clock (not the
+    // shared T0 helper) so createdAt strictly increases: SQLite/JS sort ties on an
+    // identical timestamp aren't ordering-guaranteed.
+    let t = T0.getTime();
+    let n = 0;
+    const store = new IndexStore(join(mkdtempSync(join(tmpdir(), 'sd-page-')), 'index.json'));
+    const run: CommandRunner = async () =>
+      ({ stdout: `https://gist.github.com/AugustusW/doc${n++}\n`, stderr: '', exitCode: 0 });
+    const backend = new GistBackend(store, run, () => new Date(t));
+    for (let i = 0; i < 5; i++) {
+      await backend.createDoc({ title: `Page ${i}`, content: 'x', author: `p${i}` });
+      t += 1000;
+    }
+    const page1 = await backend.searchDocs({ limit: 2, offset: 0 });
+    expect(page1.results.map(r => r.title)).toEqual(['Page 4', 'Page 3']);
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await backend.searchDocs({ limit: 2, offset: 2 });
+    expect(page2.results.map(r => r.title)).toEqual(['Page 2', 'Page 1']);
+    expect(page2.hasMore).toBe(true);
+
+    const page3 = await backend.searchDocs({ limit: 2, offset: 4 });
+    expect(page3.results.map(r => r.title)).toEqual(['Page 0']);
+    expect(page3.hasMore).toBe(false);
+  });
+
+  it('offset past the end returns an empty page with hasMore false', async () => {
+    const fake = makeFake({ 'gh gist create': `${GIST_URL}\n` });
+    const { backend } = makeBackend(fake);
+    await backend.createDoc({ title: 'Only', content: 'x' });
+    const page = await backend.searchDocs({ offset: 50 });
+    expect(page.results).toEqual([]);
+    expect(page.hasMore).toBe(false);
   });
 });

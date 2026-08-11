@@ -10,7 +10,8 @@ function entry(over: Partial<IndexEntry> = {}): IndexEntry {
   return {
     docId: 'abc123', title: 'Doc', url: 'https://gist.github.com/u/abc123',
     status: 'active', author: 'me', createdAt: T0.toISOString(),
-    updatedAt: T0.toISOString(), expiresAt: null, contentHash: 'h1', ...over,
+    updatedAt: T0.toISOString(), expiresAt: null, contentHash: 'h1',
+    viewCount: null, lastViewedAt: null, ...over,
   };
 }
 
@@ -68,15 +69,52 @@ describe('IndexStore', () => {
       store.add(entry({ docId: `n${i}`, title: `New ${i}`, createdAt: `2026-07-10T00:00:${String(i).padStart(2, '0')}Z` }));
     }
     const hits = store.search({ contentQuery: 'needle' }); // default limit 20
-    expect(hits.map(e => e.docId)).toEqual(['old']);
+    expect(hits.entries.map(e => e.docId)).toEqual(['old']);
   });
 
   it('search: title substring (case-insensitive) + status filter + limit', () => {
     store.add(entry({ docId: 'a', title: 'Weekly Report' }));
     store.add(entry({ docId: 'b', title: 'weekly summary', status: 'revoked' }));
     store.add(entry({ docId: 'c', title: 'Other' }));
-    expect(store.search({ titleQuery: 'weekly' }).length).toBe(2);
-    expect(store.search({ titleQuery: 'weekly', status: 'revoked' })[0].docId).toBe('b');
-    expect(store.search({ limit: 1 }).length).toBe(1);
+    expect(store.search({ titleQuery: 'weekly' }).entries.length).toBe(2);
+    expect(store.search({ titleQuery: 'weekly', status: 'revoked' }).entries[0].docId).toBe('b');
+    expect(store.search({ limit: 1 }).entries.length).toBe(1);
+  });
+
+  describe('offset pagination + hasMore', () => {
+    beforeEach(() => {
+      for (let i = 0; i < 5; i++) {
+        store.add(entry({ docId: `p${i}`, title: `Page ${i}`, createdAt: `2026-07-10T00:00:0${i}Z` }));
+      }
+    });
+
+    it('hasMore is true while more rows exist beyond offset+limit, false on the last page', () => {
+      const page1 = store.search({ limit: 2, offset: 0 });
+      expect(page1.entries.map(e => e.docId)).toEqual(['p4', 'p3']); // newest first
+      expect(page1.hasMore).toBe(true);
+
+      const page2 = store.search({ limit: 2, offset: 2 });
+      expect(page2.entries.map(e => e.docId)).toEqual(['p2', 'p1']);
+      expect(page2.hasMore).toBe(true);
+
+      const page3 = store.search({ limit: 2, offset: 4 });
+      expect(page3.entries.map(e => e.docId)).toEqual(['p0']);
+      expect(page3.hasMore).toBe(false);
+    });
+
+    it('offset past the end returns an empty page with hasMore false', () => {
+      const page = store.search({ limit: 2, offset: 50 });
+      expect(page.entries).toEqual([]);
+      expect(page.hasMore).toBe(false);
+    });
+
+    it('hasMore detection is exact even when limit is already at the max (100)', () => {
+      for (let i = 0; i < 100; i++) {
+        store.add(entry({ docId: `m${i}`, title: `Many ${i}`, createdAt: `2026-07-11T00:00:${String(i % 60).padStart(2, '0')}Z` }));
+      }
+      const page = store.search({ limit: 100, offset: 0 });
+      expect(page.entries.length).toBe(100);
+      expect(page.hasMore).toBe(true); // 105 total > 100
+    });
   });
 });

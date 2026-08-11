@@ -86,12 +86,14 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       if (status !== undefined && !['active', 'revoked', 'expired'].includes(status)) {
         throw new BackendError(`status must be active/revoked/expired, got: ${status}`);
       }
-      const results = await backend.searchDocs({
+      const offset = (a.offset as number | undefined) ?? 0;
+      if (offset < 0) throw new BackendError(`offset must be >= 0, got: ${offset}`);
+      const { results, hasMore } = await backend.searchDocs({
         titleQuery: (a.title_query as string) ?? '',
         contentQuery: (a.content_query as string) ?? '',
-        status: status as never, limit: (a.limit as number) ?? 20,
+        status: status as never, limit: (a.limit as number) ?? 20, offset,
       });
-      return { results };
+      return { results, hasMore };
     }),
   };
 }
@@ -139,12 +141,13 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     inputSchema: { doc_id_or_url: z.string(), confirm: z.boolean() },
   },
   search_shared_docs: {
-    description: 'Find previously shared docs and their links. Call with NO arguments to list the newest docs (each result includes its share URL). title_query filters by title substring; content_query searches body text (selfhost: full content; gist: the opening excerpt only); status filters active/revoked/expired; limit max 100.',
+    description: 'Find previously shared docs and their links. Call with NO arguments to list the newest docs (each result includes its share URL, and on the selfhost backend, viewCount/lastViewedAt — gist returns those as null, GitHub exposes no gist view-count data). title_query filters by title substring; content_query searches body text (selfhost: full content; gist: the opening excerpt only); status filters active/revoked/expired; limit max 100 (default 20); offset pages past it (must be >= 0) — hasMore in the response tells you whether to fetch another page at offset + limit.',
     inputSchema: {
       title_query: optStr,
       content_query: optStr,
       status: z.enum(['active', 'revoked', 'expired']).optional(),
       limit: z.number().optional(),
+      offset: z.number().optional(),
     },
   },
 };
