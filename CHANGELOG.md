@@ -12,6 +12,30 @@ All notable changes to this project are documented here. Every release bumps `ve
   recomputes `contentHash` from the new content so `create_shared_doc`'s dedup logic
   keeps matching correctly; gist backend reuses the same PATCH mechanism as append but
   replaces the file content wholesale instead of fetching-and-concatenating
+- **View stats (selfhost)**: `docs` gains `viewCount`/`lastViewedAt` columns
+  (migration, `PRAGMA user_version` 2 → 3). The HTTP viewer increments them on a
+  successful render only — a password form display, a wrong-password 401, and a
+  404/410 never count. Surfaced through `search_shared_docs` results; gist backend
+  reports both as `null` (GitHub's gist API exposes no view-count data) rather than a
+  misleading 0 — see the new `capabilities().stats: 'tracked' | 'unavailable'`
+- **`search_shared_docs` offset pagination**: new `offset` param (default 0, rejected
+  if negative) and a `hasMore` field in the response so callers know whether to fetch
+  `offset + limit` next. Both backends detect the next page by fetching one row past
+  the limit rather than a separate COUNT query, so `hasMore` stays exact even when
+  `limit` is already at the public max (100)
+- **Docker**: a `Dockerfile` (multi-stage, `node:22-alpine`) for the standalone
+  `serve` daemon, plus a `docker run` recipe in the README (EN + zh-TW). The viewer
+  binds `127.0.0.1` by default inside the container too — which Docker's `-p` port
+  mapping cannot reach, since it forwards to the container's network interface, not
+  its loopback — so a new `SHAREDOC_BIND_HOST` env var (default unchanged: `127.0.0.1`)
+  is the explicit opt-in to `0.0.0.0` needed to actually expose it, with the exposure
+  tradeoff documented at the point of use rather than silently defaulting to open
+
+### Changed
+- `ShareBackend.searchDocs()` now returns `{ results, hasMore }` instead of a bare
+  array, and `DocRecord` gained non-optional `viewCount`/`lastViewedAt` fields
+  (`number | null` / `string | null`) — both are backend-interface changes for the two
+  features above, not a behavior change on their own
 
 ### Fixed
 - **`buildServer` no longer hardcodes `version: '2.1.0'`** in the `McpServer`
