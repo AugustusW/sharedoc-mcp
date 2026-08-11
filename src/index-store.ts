@@ -72,17 +72,23 @@ export class IndexStore {
       e.status === 'active' && e.expiresAt !== null && Date.parse(e.expiresAt) < now.getTime());
   }
 
-  /** Filter (title + status + excerpt) → sort → limit. The limit is applied LAST so a
-   *  content match beyond the newest N is still found (review: filter-before-limit). */
-  search(p: { titleQuery?: string; contentQuery?: string; status?: DocStatus; limit?: number }): IndexEntry[] {
+  /** Filter (title + status + excerpt) → sort → page. The filters are applied BEFORE
+   *  paging so a content match beyond the newest N is still found (review:
+   *  filter-before-limit). Pages by fetching one row past `limit` and checking whether
+   *  it exists, rather than a separate COUNT query — cheap and exact at any offset,
+   *  including exactly at the max limit (see selfhost.searchDocs for the same trick). */
+  search(p: { titleQuery?: string; contentQuery?: string; status?: DocStatus; limit?: number; offset?: number }):
+    { entries: IndexEntry[]; hasMore: boolean } {
     const q = (p.titleQuery ?? '').toLowerCase();
     const cq = (p.contentQuery ?? '').toLowerCase();
     const limit = Math.min(p.limit ?? 20, 100);
-    return this.load()
+    const offset = Math.max(p.offset ?? 0, 0);
+    const filtered = this.load()
       .filter(e => (q === '' || e.title.toLowerCase().includes(q)))
       .filter(e => (cq === '' || (e.excerpt ?? '').toLowerCase().includes(cq)))
       .filter(e => (p.status === undefined || e.status === p.status))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, limit);
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const page = filtered.slice(offset, offset + limit + 1);
+    return { entries: page.slice(0, limit), hasMore: page.length > limit };
   }
 }

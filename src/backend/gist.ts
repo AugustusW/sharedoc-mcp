@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { IndexStore } from '../index-store.js';
 import {
   BackendError, type BackendCapabilities, type CreateDocParams,
-  type DocRecord, type SearchParams, type ShareBackend,
+  type SearchParams, type SearchResult, type ShareBackend,
 } from './types.js';
 
 export type CommandRunner = (argv: string[], input?: string)
@@ -38,7 +38,7 @@ export class GistBackend implements ShareBackend {
   ) {}
 
   capabilities(): BackendCapabilities {
-    return { password: 'none', expiry: 'lazy', revoke: 'hard-delete' };
+    return { password: 'none', expiry: 'lazy', revoke: 'hard-delete', stats: 'unavailable' };
   }
 
   private async gh(args: string[], input?: string): Promise<string> {
@@ -86,6 +86,9 @@ export class GistBackend implements ShareBackend {
       docId, title: p.title, url, status: 'active', author: p.author ?? null,
       createdAt: now.toISOString(), updatedAt: now.toISOString(),
       expiresAt: p.expiresInHours ? new Date(now.getTime() + p.expiresInHours * 3600e3).toISOString() : null,
+      // GitHub's gist API exposes no view-count data — always null, never tracked
+      // (see capabilities().stats rather than reading this as "never viewed").
+      viewCount: null, lastViewedAt: null,
       contentHash: hash, filename, excerpt: p.content.slice(0, 200),
     });
     return { url };
@@ -123,6 +126,20 @@ export class GistBackend implements ShareBackend {
       patch.excerpt = ((e.excerpt ?? '') + content).slice(0, 200);
     }
     this.store.update(docId, patch, this.now());
+  }
+
+  /** Replace content entirely (≠ appendDoc): a straight PATCH, no need to fetch and
+   *  concatenate the current gist content first. Local index (contentHash + excerpt)
+   *  is only updated AFTER the PATCH succeeds — same ordering as appendDoc, so a
+   *  failed PATCH can't leave locally-searchable text that isn't actually published. */
+  async updateContent(docId: string, content: string): Promise<void> {
+    await this.lazyCleanup();
+    const e = this.mustGet(docId);
+    const filename = e.filename ?? `${slugify(e.title)}.md`;
+    const hash = createHash('sha256').update(`${e.title}\0${content}\0${e.author ?? ''}`).digest('hex');
+    const body = JSON.stringify({ files: { [filename]: { content } } });
+    await this.gh(['api', `gists/${docId}`, '-X', 'PATCH', '--input', '-'], body);
+    this.store.update(docId, { contentHash: hash, excerpt: content.slice(0, 200) }, this.now());
   }
 
   async extendDoc(docId: string, hours: number): Promise<void> {
@@ -166,12 +183,13 @@ export class GistBackend implements ShareBackend {
     this.store.remove(docId);
   }
 
-  async searchDocs(p: SearchParams): Promise<DocRecord[]> {
+  async searchDocs(p: SearchParams): Promise<SearchResult> {
     await this.lazyCleanup();
     // Excerpt filtering happens inside store.search (before the limit) — review #4.
     // Map IndexEntry → DocRecord: internal fields (contentHash, filename, excerpt) stay internal.
-    return this.store.search(p)
-      .map(({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }) =>
-        ({ docId, title, url, status, author, createdAt, updatedAt, expiresAt }));
+    const { entries, hasMore } = this.store.search(p);
+    const results = entries.map(({ docId, title, url, status, author, createdAt, updatedAt, expiresAt, viewCount, lastViewedAt }) =>
+      ({ docId, title, url, status, author, createdAt, updatedAt, expiresAt, viewCount, lastViewedAt }));
+    return { results, hasMore };
   }
 }

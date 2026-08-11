@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
 import bcrypt from 'bcryptjs';
 import {
   BackendError, type BackendCapabilities, type CreateDocParams,
-  type DocRecord, type SearchParams, type ShareBackend,
+  type DocRecord, type SearchParams, type SearchResult, type ShareBackend,
 } from './types.js';
 
 const DEDUP_WINDOW_MS = 5 * 60_000;
@@ -57,6 +57,10 @@ export class SelfHostBackend implements ShareBackend {
       CREATE TABLE IF NOT EXISTS rateLimits (
         key TEXT PRIMARY KEY, windowStart INTEGER NOT NULL, count INTEGER NOT NULL
       );`,
+      // v2.2.0: view stats. viewCount defaults to 0 (NOT NULL) so existing rows read
+      // as "never viewed" rather than NULL; lastViewedAt stays NULL until the first view.
+      `ALTER TABLE docs ADD COLUMN viewCount INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE docs ADD COLUMN lastViewedAt TEXT;`,
     ];
     const current = (this.db.prepare(`PRAGMA user_version`).get() as { user_version: number }).user_version;
     for (let v = current; v < migrations.length; v++) {
@@ -66,7 +70,7 @@ export class SelfHostBackend implements ShareBackend {
   }
 
   capabilities(): BackendCapabilities {
-    return { password: 'server', expiry: 'enforced', revoke: 'grace' };
+    return { password: 'server', expiry: 'enforced', revoke: 'grace', stats: 'tracked' };
   }
 
   /** Failure-counting rate limiter, SQLite-backed (survives restarts).
@@ -134,6 +138,14 @@ export class SelfHostBackend implements ShareBackend {
     return r ?? undefined;
   }
 
+  /** Called by the HTTP viewer on a successful content render ONLY — never on a
+   *  password form display, a wrong-password 401, or a 404/410. Silently a no-op if
+   *  the row is gone (best-effort stat, must never turn a served page into an error). */
+  recordView(docId: string): void {
+    this.db.prepare(`UPDATE docs SET viewCount = viewCount + 1, lastViewedAt = ? WHERE docId = ?`)
+      .run(this.now().toISOString(), docId);
+  }
+
   private mustActive(docId: string): void {
     this.housekeeping();
     const r = this.db.prepare(`SELECT status FROM docs WHERE docId = ?`).get(docId) as { status: string } | undefined;
@@ -170,6 +182,17 @@ export class SelfHostBackend implements ShareBackend {
     this.db.prepare(`UPDATE docs SET content = COALESCE(content, '') || ?, updatedAt = ? WHERE docId = ?`).run(content, this.now().toISOString(), docId);
   }
 
+  /** Replace content entirely (≠ appendDoc). Recomputes contentHash from the SAME
+   *  title+content+author formula createDoc uses, so createDoc's dedup logic still
+   *  matches a duplicate submission against the new content, not the stale one. */
+  async updateContent(docId: string, content: string): Promise<void> {
+    this.mustActive(docId);
+    const row = this.db.prepare(`SELECT title, author FROM docs WHERE docId = ?`).get(docId) as { title: string; author: string | null };
+    const hash = createHash('sha256').update(`${row.title}\0${content}\0${row.author ?? ''}`).digest('hex');
+    this.db.prepare(`UPDATE docs SET content = ?, contentHash = ?, updatedAt = ? WHERE docId = ?`).run(
+      content, hash, this.now().toISOString(), docId);
+  }
+
   async extendDoc(docId: string, hours: number): Promise<void> {
     this.mustActive(docId);
     this.db.prepare(`UPDATE docs SET expiresAt = ?, updatedAt = ? WHERE docId = ?`).run(
@@ -200,19 +223,24 @@ export class SelfHostBackend implements ShareBackend {
     if (changed === 0) throw new BackendError(`doc ${docId} not found`);
   }
 
-  async searchDocs(p: SearchParams): Promise<DocRecord[]> {
+  async searchDocs(p: SearchParams): Promise<SearchResult> {
     this.housekeeping();
     const limit = Math.min(p.limit ?? 20, 100);
+    const offset = Math.max(p.offset ?? 0, 0);
     const esc = (s: string) => s.replace(/[%_\\]/g, c => `\\${c}`);
     const q = esc(p.titleQuery ?? '');
     const cq = esc(p.contentQuery ?? '');
+    // Fetch one row past `limit` to detect a next page exactly, even when limit is
+    // already at the public max (100) — see index-store.search for the same trick.
     const rows = this.db.prepare(`
-      SELECT docId, title, status, author, createdAt, updatedAt, expiresAt FROM docs
+      SELECT docId, title, status, author, createdAt, updatedAt, expiresAt, viewCount, lastViewedAt FROM docs
       WHERE (? = '' OR lower(title) LIKE '%' || lower(?) || '%' ESCAPE '\\')
         AND (? = '' OR lower(COALESCE(content, '')) LIKE '%' || lower(?) || '%' ESCAPE '\\')
         AND (? IS NULL OR status = ?)
-      ORDER BY createdAt DESC LIMIT ?`).all(
-      q, q, cq, cq, p.status ?? null, p.status ?? null, limit) as never[];
-    return (rows as Array<Omit<DocRecord, 'url'>>).map(r => ({ ...r, url: `${this.publicUrl}/docs/${r.docId}` }));
+      ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(
+      q, q, cq, cq, p.status ?? null, p.status ?? null, limit + 1, offset) as never[];
+    const hasMore = rows.length > limit;
+    const page = (rows as Array<Omit<DocRecord, 'url'>>).slice(0, limit);
+    return { results: page.map(r => ({ ...r, url: `${this.publicUrl}/docs/${r.docId}` })), hasMore };
   }
 }

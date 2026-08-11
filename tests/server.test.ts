@@ -6,13 +6,14 @@ function stubBackend(over: Partial<ShareBackend> = {}): ShareBackend {
   return {
     createDoc: async () => ({ url: 'https://gist.github.com/u/id1' }),
     appendDoc: async () => {},
+    updateContent: async () => {},
     extendDoc: async () => {},
     resetPassword: async () => {},
     updateTitle: async () => {},
     revokeDoc: async () => {},
     deleteDoc: async () => {},
-    searchDocs: async () => [],
-    capabilities: () => ({ password: 'none', expiry: 'lazy', revoke: 'hard-delete' }),
+    searchDocs: async () => ({ results: [], hasMore: false }),
+    capabilities: () => ({ password: 'none', expiry: 'lazy', revoke: 'hard-delete', stats: 'unavailable' }),
     ...over,
   };
 }
@@ -52,18 +53,29 @@ describe('tool handlers', () => {
     expect(r).toEqual({ ok: true, doc_id: 'f00dfeed' });
   });
 
+  it('update_shared_doc_content passes extracted docId + content and returns {ok, doc_id}', async () => {
+    let gotId = '', gotContent = '';
+    const h = buildToolHandlers(stubBackend({
+      updateContent: async (id, content) => { gotId = id; gotContent = content; },
+    }));
+    const r = await h.update_shared_doc_content({ doc_id_or_url: 'https://gist.github.com/u/f00dfeed', content: 'new body' });
+    expect(gotId).toBe('f00dfeed');
+    expect(gotContent).toBe('new body');
+    expect(r).toEqual({ ok: true, doc_id: 'f00dfeed' });
+  });
+
   it('search validates status enum', async () => {
     const h = buildToolHandlers(stubBackend());
     const r = await h.search_shared_docs({ status: 'bogus' }) as { error: string };
     expect(r.error).toMatch(/status/);
   });
 
-  it('all 8 tools exist (delete added; create_shared_file stays removed)', () => {
+  it('all 9 tools exist (update_shared_doc_content added; create_shared_file stays removed)', () => {
     const h = buildToolHandlers(stubBackend());
     expect(Object.keys(h).sort()).toEqual([
       'append_to_shared_doc', 'create_shared_doc', 'delete_shared_doc',
       'extend_shared_doc', 'reset_shared_doc_password', 'revoke_shared_doc',
-      'search_shared_docs', 'update_shared_doc_title',
+      'search_shared_docs', 'update_shared_doc_content', 'update_shared_doc_title',
     ]);
   });
 
@@ -85,8 +97,36 @@ describe('tool handlers', () => {
 
   it('search passes content_query through', async () => {
     let seen: unknown;
-    const h = buildToolHandlers(stubBackend({ searchDocs: async p => { seen = p; return []; } }));
+    const h = buildToolHandlers(stubBackend({
+      searchDocs: async p => { seen = p; return { results: [], hasMore: false }; },
+    }));
     await h.search_shared_docs({ content_query: 'budget' });
     expect((seen as { contentQuery?: string }).contentQuery).toBe('budget');
+  });
+
+  it('search passes offset through (default 0) and forwards hasMore in the response', async () => {
+    let seen: unknown;
+    const h = buildToolHandlers(stubBackend({
+      searchDocs: async p => { seen = p; return { results: [], hasMore: true }; },
+    }));
+    const r = await h.search_shared_docs({});
+    expect((seen as { offset?: number }).offset).toBe(0);
+    expect(r).toEqual({ results: [], hasMore: true });
+
+    const h2 = buildToolHandlers(stubBackend({
+      searchDocs: async p => { seen = p; return { results: [], hasMore: false }; },
+    }));
+    await h2.search_shared_docs({ offset: 40 });
+    expect((seen as { offset?: number }).offset).toBe(40);
+  });
+
+  it('search rejects a negative offset without calling the backend', async () => {
+    let called = false;
+    const h = buildToolHandlers(stubBackend({
+      searchDocs: async () => { called = true; return { results: [], hasMore: false }; },
+    }));
+    const r = await h.search_shared_docs({ offset: -1 }) as { error: string };
+    expect(r.error).toMatch(/offset/);
+    expect(called).toBe(false);
   });
 });

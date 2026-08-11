@@ -168,4 +168,63 @@ describe('HTTP viewer', () => {
     expect(html).toContain('<th align="center">');
     expect(html).toContain('<td align="right">');
   });
+
+  describe('view stats: only a successful render counts', () => {
+    it('GET on an unprotected doc increments viewCount + sets lastViewedAt', async () => {
+      const id = await createId({ title: 'Views', content: 'x' });
+      await fetch(`${base}/docs/${id}`);
+      await fetch(`${base}/docs/${id}`);
+      const { results } = await backend.searchDocs({ titleQuery: 'Views' });
+      expect(results[0].viewCount).toBe(2);
+      expect(results[0].lastViewedAt).toBeTruthy();
+    });
+
+    it('password doc: the form GET and a wrong POST do NOT count; a correct POST does', async () => {
+      const id = await createId({ title: 'PV', content: 'x', password: 'pw' });
+      await fetch(`${base}/docs/${id}`); // just the password form, no content shown
+      await fetch(`${base}/docs/${id}`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'password=wrong',
+      });
+      let r = (await backend.searchDocs({ titleQuery: 'PV' })).results[0];
+      expect(r.viewCount).toBe(0);
+
+      await fetch(`${base}/docs/${id}`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'password=pw',
+      });
+      r = (await backend.searchDocs({ titleQuery: 'PV' })).results[0];
+      expect(r.viewCount).toBe(1);
+    });
+
+    it('404 and 410 responses do not count (nothing was rendered)', async () => {
+      const id = await createId({ title: 'Rv', content: 'x' });
+      await backend.revokeDoc(id);
+      expect((await fetch(`${base}/docs/${id}`)).status).toBe(410);
+      expect((await fetch(`${base}/docs/3f2a8c1e-1111-2222-3333-444455556666`)).status).toBe(404);
+      const { results } = await backend.searchDocs({ titleQuery: 'Rv' });
+      expect(results[0].viewCount).toBe(0);
+    });
+  });
+});
+
+describe('startViewer bindHost option (Docker reachability)', () => {
+  it('defaults to 127.0.0.1 when bindHost is omitted (unchanged existing behavior)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdv-bind-'));
+    const backend = new SelfHostBackend({ dbPath: join(dir, 'docs.db'), publicUrl: 'http://127.0.0.1:0' });
+    const v = await startViewer(backend, { port: 0 });
+    expect(v.host).toBe('127.0.0.1');
+    await v.close();
+  });
+
+  it('binds 0.0.0.0 when bindHost is set — this is what makes a container reachable via `docker run -p`', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdv-bind-'));
+    const backend = new SelfHostBackend({ dbPath: join(dir, 'docs.db'), publicUrl: 'http://127.0.0.1:0' });
+    const v = await startViewer(backend, { port: 0, bindHost: '0.0.0.0' });
+    expect(v.host).toBe('0.0.0.0');
+    // 0.0.0.0 includes the loopback interface, so it stays reachable via 127.0.0.1 too.
+    const res = await fetch(`http://127.0.0.1:${v.port}/healthz`);
+    expect(res.status).toBe(200);
+    await v.close();
+  });
 });

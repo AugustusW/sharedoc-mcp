@@ -17,7 +17,7 @@ English | [繁體中文](./README.zh-TW.md)
 [![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-1a1a1a?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)
 
-An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **8 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
+An [MCP](https://modelcontextprotocol.io/) stdio server — works in [Claude Code](https://claude.com/claude-code), Codex CLI, and any MCP client — that gives your agent **9 tools to publish, update, search, and revoke shareable documents**. Two pluggable backends behind one interface: **gist** (zero setup, rides your logged-in `gh` CLI) and **selfhost** (SQLite on your machine, passwords, enforced expiry).
 
 > When a backend can't honor a parameter (e.g. `password` on gist), it returns a clear error instead of silently ignoring it.
 
@@ -40,7 +40,7 @@ content lives in chat scroll          revoke / extend / append later
 
 ## Features
 
-- ✓ 8 MCP tools: create / append / extend / reset password / rename / revoke / delete / search
+- ✓ 9 MCP tools: create / append / update content / extend / reset password / rename / revoke / delete / search
 - ✓ `sharedoc-mcp serve` daemon mode — selfhost links keep working after your MCP client closes
 - ✓ Content search: find old share links by what's in them, not just the title
 - ✓ `GET /healthz` — identity-aware health probe for external monitoring / restart automation
@@ -52,8 +52,10 @@ content lives in chat scroll          revoke / extend / append later
 - ✓ Markdown rendered through `marked` + `sanitize-html` — scripts, event handlers, and `javascript:` URLs in shared content are stripped
 - ✓ Viewer binds **127.0.0.1 only**, answers with a strict security-header set (CSP `default-src 'none'`, nosniff, DENY framing, no-referrer, no-store) — exposure is a tunnel you control (recipes below)
 - ✓ Local index for `search_shared_docs` + create dedup (identical unprotected retries within 5 min return the same URL; a retry that adds a password/expiry always creates a new doc)
+- ✓ `search_shared_docs` supports offset pagination (`hasMore` in the response) and, on selfhost, view stats (`viewCount`/`lastViewedAt`, counted on a successful render only)
+- ✓ [Docker](#docker) one-liner for the standalone `serve` daemon, defaults to the same 127.0.0.1-only binding as everywhere else
 - ✓ Two MCP clients can share one data dir: SQLite WAL + busy timeout, graceful port sharing
-- ✓ 70 offline tests; `npm test` passes on a clean checkout
+- ✓ 105 offline tests; `npm test` passes on a clean checkout
 
 ## Install
 
@@ -99,6 +101,7 @@ code --add-mcp '{"name":"sharedoc","command":"npx","args":["-y","sharedoc-mcp@^2
 | Password | ✗ (the secret URL is the protection) | ✓ server-verified (bcrypt), rate-limited |
 | Expiry | lazy — expired gists deleted on next use | enforced — expired links return 410 |
 | Revoke | gist deleted immediately, irreversibly | immediate 410, content purged after 7-day grace |
+| View stats | ✗ (GitHub's gist API exposes no view-count data) | ✓ viewCount + lastViewedAt, counted on a successful render only |
 
 ### Gist quickstart
 
@@ -168,29 +171,50 @@ Extras this unlocks: Cloudflare's DDoS protection comes free; you can layer WAF 
 
 **Alternative — always-on without a home machine:** run sharedoc-mcp on a VPS (where your agent also runs) and point nginx/caddy at `127.0.0.1:8377` with your domain and auto-TLS; no tunnel needed.
 
+#### Docker
+
+Runs the same standalone `serve` daemon as above, in a container:
+
+```bash
+docker build -t sharedoc-mcp .
+docker run -d --name sharedoc \
+  -p 8377:8377 \
+  -e SHAREDOC_BIND_HOST=0.0.0.0 \
+  -v sharedoc-data:/data \
+  sharedoc-mcp
+```
+
+- `-v sharedoc-data:/data` persists `docs.db` in a named volume — recreating the container keeps your docs.
+- **`SHAREDOC_BIND_HOST=0.0.0.0` is required to reach the container at all.** The viewer binds `127.0.0.1` by default — same as every other deployment in this README — and inside a container that's unreachable through `docker run -p`, because `-p` forwards to the container's network interface, not its loopback. Without this env var, `docker logs` will show the viewer listening, but the mapped host port will refuse every connection.
+- Setting it to `0.0.0.0` means **any process that can reach the container's exposed port reaches the viewer, unauthenticated by network position** — the same exposure tradeoff as running any other unauthenticated app in a container without a proxy in front. Put it behind the same kind of front door as any other selfhost recipe above (a reverse proxy on the host, a Tailscale sidecar, a Cloudflare tunnel) rather than publishing `-p 8377:8377` straight to the internet. Password-protecting individual docs (this backend's built-in feature) is not a substitute for that.
+- If the address recipients will use differs from `http://<host>:8377` (a reverse proxy, a domain, a tunnel), set `SHAREDOC_PUBLIC_URL` too — the container has no way to infer it.
+- The MCP stdio server itself isn't meant to run in Docker — it needs a local process wired to an MCP client's stdin/stdout. Point your MCP client at `npx -y sharedoc-mcp` on the host as usual; only the standalone viewer daemon belongs in the container.
+
 Environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `SHAREDOC_BACKEND` | `gist` | `gist` or `selfhost` |
 | `SHAREDOC_PORT` | `8377` | viewer port (selfhost) |
+| `SHAREDOC_BIND_HOST` | `127.0.0.1` | viewer bind address (selfhost) — `0.0.0.0` to reach it from outside a Docker container; see [Docker](#docker) for the exposure tradeoff before changing this |
 | `SHAREDOC_PUBLIC_URL` | `http://127.0.0.1:<port>` | URL prefix in share links — set to your tunnel hostname |
 | `SHAREDOC_DATA_DIR` | `~/.local/share/sharedoc-mcp` | SQLite location (selfhost) |
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | local index (gist) |
 | `MCP_CALLER` | — | default author attribution for created docs |
 
-## The 8 tools
+## The 9 tools
 
 | Tool | Does |
 |---|---|
 | `create_shared_doc` | title + Markdown (+ optional password / `expires_in_hours` / author) → share URL |
 | `append_to_shared_doc` | append Markdown (not idempotent — a retry appends twice) |
+| `update_shared_doc_content` | replace the entire content (title/password/expiry unchanged) — idempotent, safe to retry |
 | `extend_shared_doc` | extend expiry by N hours |
 | `reset_shared_doc_password` | set / change / remove (null) the password (selfhost only) |
 | `update_shared_doc_title` | rename |
 | `revoke_shared_doc` | kill the link, keep the record (see backend table for semantics) |
 | `delete_shared_doc` | kill the link AND erase the record — irreversible; requires `confirm: true` (agents should get explicit user approval first) |
-| `search_shared_docs` | no args = list newest links; title substring, body-text search (selfhost: full content; gist: opening excerpt), status filter |
+| `search_shared_docs` | no args = list newest links; title substring, body-text search (selfhost: full content; gist: opening excerpt), status filter, offset paging (hasMore in the response), view stats on selfhost |
 
 ## Privacy
 
@@ -213,7 +237,7 @@ Data flow, by backend:
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # builds, then runs 70 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
+npm test        # builds, then runs 105 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
 ```
 
 Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp).
@@ -221,7 +245,7 @@ Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](
 
 ## Status
 
-v2.1.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 70 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+v2.1.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 105 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
 
 - macOS (Apple Silicon), Node v25 — gist + selfhost backends
 

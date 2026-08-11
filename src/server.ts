@@ -1,6 +1,13 @@
+import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
 import { BackendError, type ShareBackend } from './backend/types.js';
+
+// createRequire (not a JSON import) because the build is plain `tsc` with no
+// resolveJsonModule/tsup step — this works unmodified from both src/ (ts-node/vitest,
+// one level under repo root) and the published dist/ (one level under the npm package
+// root, where package.json ships automatically regardless of the "files" allowlist).
+const PACKAGE_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 const CALLER_DEFAULT = 'sharedoc-mcp';
 
@@ -41,6 +48,11 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       await backend.appendDoc(id, String(a.content), caller(a.updated_user as string));
       return { ok: true, doc_id: id };
     }),
+    update_shared_doc_content: wrap(async a => {
+      const id = extractDocId(String(a.doc_id_or_url));
+      await backend.updateContent(id, String(a.content), caller(a.updated_user as string));
+      return { ok: true, doc_id: id };
+    }),
     extend_shared_doc: wrap(async a => {
       const id = extractDocId(String(a.doc_id_or_url));
       await backend.extendDoc(id, Number(a.hours));
@@ -74,12 +86,14 @@ export function buildToolHandlers(backend: ShareBackend): Record<string, Handler
       if (status !== undefined && !['active', 'revoked', 'expired'].includes(status)) {
         throw new BackendError(`status must be active/revoked/expired, got: ${status}`);
       }
-      const results = await backend.searchDocs({
+      const offset = (a.offset as number | undefined) ?? 0;
+      if (offset < 0) throw new BackendError(`offset must be >= 0, got: ${offset}`);
+      const { results, hasMore } = await backend.searchDocs({
         titleQuery: (a.title_query as string) ?? '',
         contentQuery: (a.content_query as string) ?? '',
-        status: status as never, limit: (a.limit as number) ?? 20,
+        status: status as never, limit: (a.limit as number) ?? 20, offset,
       });
-      return { results };
+      return { results, hasMore };
     }),
   };
 }
@@ -100,6 +114,10 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
   // a prompt-injection exfiltration vector (.env, keys) — no allowlist, no tool.
   append_to_shared_doc: {
     description: 'Append content to an existing shared doc. NOT idempotent: a retry appends twice — check with search_shared_docs before retrying. Accepts a doc id or URL.',
+    inputSchema: { doc_id_or_url: z.string(), content: z.string(), updated_user: optStr },
+  },
+  update_shared_doc_content: {
+    description: 'Replace the entire content of an existing shared doc (title, password, and expiry are left unchanged). Idempotent: unlike append_to_shared_doc, calling it twice with the same content is safe to retry — the result is the same either way. Accepts a doc id or URL.',
     inputSchema: { doc_id_or_url: z.string(), content: z.string(), updated_user: optStr },
   },
   extend_shared_doc: {
@@ -123,18 +141,19 @@ const TOOL_SCHEMAS: Record<string, { description: string; inputSchema: Record<st
     inputSchema: { doc_id_or_url: z.string(), confirm: z.boolean() },
   },
   search_shared_docs: {
-    description: 'Find previously shared docs and their links. Call with NO arguments to list the newest docs (each result includes its share URL). title_query filters by title substring; content_query searches body text (selfhost: full content; gist: the opening excerpt only); status filters active/revoked/expired; limit max 100.',
+    description: 'Find previously shared docs and their links. Call with NO arguments to list the newest docs (each result includes its share URL, and on the selfhost backend, viewCount/lastViewedAt — gist returns those as null, GitHub exposes no gist view-count data). title_query filters by title substring; content_query searches body text (selfhost: full content; gist: the opening excerpt only); status filters active/revoked/expired; limit max 100 (default 20); offset pages past it (must be >= 0) — hasMore in the response tells you whether to fetch another page at offset + limit.',
     inputSchema: {
       title_query: optStr,
       content_query: optStr,
       status: z.enum(['active', 'revoked', 'expired']).optional(),
       limit: z.number().optional(),
+      offset: z.number().optional(),
     },
   },
 };
 
 export function buildServer(backend: ShareBackend): McpServer {
-  const server = new McpServer({ name: 'sharedoc', version: '2.1.0' });
+  const server = new McpServer({ name: 'sharedoc', version: PACKAGE_VERSION });
   const handlers = buildToolHandlers(backend);
   for (const [name, meta] of Object.entries(TOOL_SCHEMAS)) {
     server.registerTool(name, meta, async (args: Record<string, unknown>) => ({

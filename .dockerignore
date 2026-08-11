@@ -1,0 +1,12 @@
+node_modules
+dist
+*.tsbuildinfo
+.git
+.github
+tests
+README.md
+README.zh-TW.md
+CHANGELOG.md
+LICENSE
+*.log
+.DS_Store

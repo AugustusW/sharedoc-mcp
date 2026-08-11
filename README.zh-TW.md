@@ -17,7 +17,7 @@
 [![Add to Cursor](https://img.shields.io/badge/Cursor-Add_MCP_Server-1a1a1a?logo=cursor&logoColor=white)](https://cursor.com/install-mcp?name=sharedoc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNoYXJlZG9jLW1jcEBeMiJdfQ%3D%3D)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_MCP_Server-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=sharedoc&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22sharedoc-mcp%40%5E2%22%5D%7D)
 
-一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **8 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
+一個 [MCP](https://modelcontextprotocol.io/) stdio server——可用於 [Claude Code](https://claude.com/claude-code)、Codex CLI 與任何 MCP client——給你的 agent **9 個工具：發佈、更新、搜尋、撤銷分享文件**。同一組介面、兩個可切換後端：**gist**（零設定，搭你已登入的 `gh` CLI）與 **selfhost**（SQLite 存你機器上，支援密碼與強制期限）。
 
 > 後端不支援某參數時（如 gist 收到 `password`）會回明確錯誤，不會靜默忽略。
 
@@ -40,7 +40,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 
 ## 特色
 
-- ✓ 8 個 MCP 工具：建立／追加／延長／改密碼／改標題／撤銷／刪除／搜尋
+- ✓ 9 個 MCP 工具：建立／追加／取代內容／延長／改密碼／改標題／撤銷／刪除／搜尋
 - ✓ `sharedoc-mcp serve` daemon 模式——MCP client 關掉後 selfhost 連結照樣活著
 - ✓ 內容搜尋：用文件裡寫了什麼找回舊連結，不只靠標題
 - ✓ `GET /healthz`——帶身分識別的健檢端點，外部監控／自動重啟直接掛
@@ -52,8 +52,10 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 - ✓ Markdown 經 `marked` + `sanitize-html` 渲染——分享內容中的 script、事件屬性、`javascript:` 連結都會被剝除
 - ✓ Viewer **只 bind 127.0.0.1**，所有回應帶完整安全 headers（CSP `default-src 'none'`、nosniff、禁 iframe、no-referrer、no-store）——對外曝光交給你自己控制的 tunnel（食譜見下）
 - ✓ 本地索引支援 `search_shared_docs` 與建立去重（5 分鐘內相同的無保護重試回同一 URL；補加密碼/期限的重試一律建新文件）
+- ✓ `search_shared_docs` 支援 offset 分頁（回應含 `hasMore`），selfhost 另有瀏覽統計（`viewCount`/`lastViewedAt`，僅成功渲染才計入）
+- ✓ [Docker](#docker) 一行指令跑 standalone `serve` daemon，預設跟其他地方一樣只 bind 127.0.0.1
 - ✓ 兩個 MCP client 可共用同一資料目錄：SQLite WAL + busy timeout、埠衝突優雅共存
-- ✓ 70 個離線測試；乾淨 checkout `npm test` 直接綠
+- ✓ 105 個離線測試；乾淨 checkout `npm test` 直接綠
 
 ## 安裝
 
@@ -99,6 +101,7 @@ code --add-mcp '{"name":"sharedoc","command":"npx","args":["-y","sharedoc-mcp@^2
 | 密碼 | ✗（secret URL 本身就是保護） | ✓ server 端驗證（bcrypt）+ 限流 |
 | 期限 | 惰性——過期 gist 於下次使用時刪除 | 強制——過期連結回 410 |
 | 撤銷 | gist 立即刪除、不可逆 | 立即 410，內容 7 天緩衝後清除 |
+| 瀏覽統計 | ✗（GitHub gist API 不提供瀏覽次數資料） | ✓ viewCount + lastViewedAt，僅成功渲染才計入 |
 
 ### Gist 快速開始
 
@@ -166,29 +169,50 @@ claude mcp add sharedoc --scope user \
 
 **另一種情境——不想依賴家裡機器常開：**把 sharedoc-mcp 跑在 VPS 上（agent 也在那執行），nginx/caddy 反代 `127.0.0.1:8377` 配網域與自動 TLS 即可，不需要 tunnel。
 
+#### Docker
+
+跟上面一樣是跑 standalone 的 `serve` daemon，只是包成容器：
+
+```bash
+docker build -t sharedoc-mcp .
+docker run -d --name sharedoc \
+  -p 8377:8377 \
+  -e SHAREDOC_BIND_HOST=0.0.0.0 \
+  -v sharedoc-data:/data \
+  sharedoc-mcp
+```
+
+- `-v sharedoc-data:/data` 把 `docs.db` 存進 named volume——容器重建文件不會不見。
+- **`SHAREDOC_BIND_HOST=0.0.0.0` 是連上容器的必要條件。** viewer 預設只 bind `127.0.0.1`——跟本文件其他部署方式一樣——但在容器內這代表透過 `docker run -p` 完全連不到，因為 `-p` 轉發到容器的網路介面，不是它的 loopback。沒設這個環境變數的話，`docker logs` 會顯示 viewer 正常在聽，但對外映射的 host port 會一律拒絕連線。
+- 設成 `0.0.0.0` 代表**任何連得到容器對外埠的人都連得到 viewer，光靠網路位置不做任何驗證**——跟在容器裡跑任何沒驗證機制的 app、卻沒在前面擋一層是一樣的風險。請像本文件其他 selfhost 情境一樣在前面加一層(host 上的 reverse proxy、Tailscale sidecar、Cloudflare tunnel)，不要直接把 `-p 8377:8377` 對外網公開。單篇文件的密碼保護(這個後端內建的功能)不能替代這一層。
+- 如果收件人實際會用的網址跟 `http://<host>:8377` 不同(reverse proxy、網域、tunnel)，記得也設 `SHAREDOC_PUBLIC_URL`——容器沒辦法自己推斷。
+- MCP stdio server 本身不適合跑在 Docker 裡——它需要一個綁定 MCP client stdin/stdout 的本機 process。MCP client 一樣照常指向 host 上的 `npx -y sharedoc-mcp`；只有 standalone viewer daemon 適合放進容器。
+
 環境變數：
 
 | 變數 | 預設 | 意義 |
 |---|---|---|
 | `SHAREDOC_BACKEND` | `gist` | `gist` 或 `selfhost` |
 | `SHAREDOC_PORT` | `8377` | viewer 埠（selfhost） |
+| `SHAREDOC_BIND_HOST` | `127.0.0.1` | viewer bind 位址（selfhost）——要從 Docker 容器外連進來設 `0.0.0.0`；改之前先看上面 [Docker](#docker) 段落的曝險取捨 |
 | `SHAREDOC_PUBLIC_URL` | `http://127.0.0.1:<port>` | 分享連結的網址前綴——設成你的 tunnel 主機名 |
 | `SHAREDOC_DATA_DIR` | `~/.local/share/sharedoc-mcp` | SQLite 位置（selfhost） |
 | `SHAREDOC_INDEX_PATH` | `~/.config/sharedoc-mcp/index.json` | 本地索引（gist） |
 | `MCP_CALLER` | — | 建立文件的預設作者歸因 |
 
-## 8 個工具
+## 9 個工具
 
 | 工具 | 功能 |
 |---|---|
 | `create_shared_doc` | 標題 + Markdown（+ 選填密碼 / `expires_in_hours` / 作者）→ 分享 URL |
 | `append_to_shared_doc` | 尾端追加 Markdown（非冪等——重試會加兩次） |
+| `update_shared_doc_content` | 取代整份內容（標題/密碼/期限不變）——冪等，可安全重試 |
 | `extend_shared_doc` | 延長期限 N 小時 |
 | `reset_shared_doc_password` | 設定／更換／移除（null）密碼（僅 selfhost） |
 | `update_shared_doc_title` | 改標題 |
 | `revoke_shared_doc` | 撤銷連結、保留紀錄（語意見後端對照表） |
 | `delete_shared_doc` | 連結失效＋紀錄整個消失——不可逆；需帶 `confirm: true`（agent 應先取得使用者明確同意） |
-| `search_shared_docs` | 不帶參數＝列出最新連結；標題子字串、內文搜尋（selfhost 全文；gist 僅開頭摘要）、狀態篩選 |
+| `search_shared_docs` | 不帶參數＝列出最新連結；標題子字串、內文搜尋（selfhost 全文；gist 僅開頭摘要）、狀態篩選、offset 分頁（回應含 hasMore）、selfhost 瀏覽統計 |
 
 ## 隱私
 
@@ -211,7 +235,7 @@ claude mcp add sharedoc --scope user \
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # 先 build 再跑 70 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
+npm test        # 先 build 再跑 105 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
 ```
 
 版本規則：每次釋出 bump `package.json` 的 `version`、加一筆 [CHANGELOG](./CHANGELOG.md)、打 git tag 發 [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp)。
@@ -219,7 +243,7 @@ npm test        # 先 build 再跑 70 個離線測試——gh CLI 以 mock 替�
 
 ## 狀態
 
-v2.1.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 70 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
+v2.1.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 105 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
 
 - macOS（Apple Silicon）、Node v25——gist + selfhost 兩後端
 

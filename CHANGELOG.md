@@ -3,6 +3,72 @@
 All notable changes to this project are documented here. Every release bumps `version` in
 `package.json` and adds an entry below.
 
+## [2.2.0] - 2026-08-11
+
+### Added
+- **`update_shared_doc_content`** — replace an existing shared doc's entire content
+  (title, password, and expiry stay untouched). Idempotent by design: calling it twice
+  with the same content is safe to retry, unlike `append_to_shared_doc`. Selfhost
+  recomputes `contentHash` from the new content so `create_shared_doc`'s dedup logic
+  keeps matching correctly; gist backend reuses the same PATCH mechanism as append but
+  replaces the file content wholesale instead of fetching-and-concatenating
+- **View stats (selfhost)**: `docs` gains `viewCount`/`lastViewedAt` columns
+  (migration, `PRAGMA user_version` 2 → 3). The HTTP viewer increments them on a
+  successful render only — a password form display, a wrong-password 401, and a
+  404/410 never count. Surfaced through `search_shared_docs` results; gist backend
+  reports both as `null` (GitHub's gist API exposes no view-count data) rather than a
+  misleading 0 — see the new `capabilities().stats: 'tracked' | 'unavailable'`
+- **`search_shared_docs` offset pagination**: new `offset` param (default 0, rejected
+  if negative) and a `hasMore` field in the response so callers know whether to fetch
+  `offset + limit` next. Both backends detect the next page by fetching one row past
+  the limit rather than a separate COUNT query, so `hasMore` stays exact even when
+  `limit` is already at the public max (100)
+- **Docker**: a `Dockerfile` (multi-stage, `node:22-alpine`) for the standalone
+  `serve` daemon, plus a `docker run` recipe in the README (EN + zh-TW). The viewer
+  binds `127.0.0.1` by default inside the container too — which Docker's `-p` port
+  mapping cannot reach, since it forwards to the container's network interface, not
+  its loopback — so a new `SHAREDOC_BIND_HOST` env var (default unchanged: `127.0.0.1`)
+  is the explicit opt-in to `0.0.0.0` needed to actually expose it, with the exposure
+  tradeoff documented at the point of use rather than silently defaulting to open
+
+### Changed
+- `ShareBackend.searchDocs()` now returns `{ results, hasMore }` instead of a bare
+  array, and `DocRecord` gained non-optional `viewCount`/`lastViewedAt` fields
+  (`number | null` / `string | null`) — both are backend-interface changes for the two
+  features above, not a behavior change on their own
+
+### Fixed
+- **`buildServer` no longer hardcodes `version: '2.1.0'`** in the `McpServer`
+  constructor — every release since 2.1.0 was reporting a stale version to MCP
+  clients. Now read from `package.json` at runtime via `createRequire` (plain `tsc`
+  build, no bundler/resolveJsonModule step), so the reported version always matches
+  the published package
+- CHANGELOG: backfilled the missing 2.1.3 and 2.1.4 entries below
+
+## [2.1.4] - 2026-08-03
+
+### Fixed
+- `mcpName` / `server.json` `name` namespace corrected to `io.github.AugustusW/sharedoc-mcp`
+  (was lowercased `io.github.augustusw/...` in 2.1.3) to match the registry's expected
+  GitHub-namespace casing
+- `server.json` `description` trimmed to ≤100 characters, satisfying the MCP Registry
+  schema's length limit
+
+## [2.1.3] - 2026-08-03
+
+### Added
+- **MCP Registry metadata**: `mcpName` field in `package.json` and a new `server.json`
+  manifest (name, description, repository, version, npm package identifier, stdio
+  transport, `SHAREDOC_BACKEND`/`SHAREDOC_PUBLIC_URL` environment variable docs) —
+  required for listing on the MCP Registry
+
+### Infrastructure
+- **npm trusted publishing (OIDC)** via a new `publish.yml` GitHub Actions workflow —
+  pushing a `v*` tag now authenticates directly with npm through GitHub's OIDC token
+  (no long-lived npm token, no 2FA prompt) and publishes with provenance attestation
+- `repository` field added to `package.json` — required by npm's provenance validation
+  for the trusted-publishing flow above
+
 ## [2.1.2] - 2026-08-02
 
 Search-engine noindex hardening.

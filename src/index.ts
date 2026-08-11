@@ -12,10 +12,13 @@ import type { ShareBackend } from './backend/types.js';
 
 const DB_SIZE_WARN_BYTES = 100 * 1024 * 1024;
 
-function selfHostConfig(): { dbPath: string; port: number; publicUrl: string | undefined } {
+function selfHostConfig(): { dbPath: string; port: number; publicUrl: string | undefined; bindHost: string } {
   const dataDir = process.env.SHAREDOC_DATA_DIR ?? join(homedir(), '.local', 'share', 'sharedoc-mcp');
   const port = Number(process.env.SHAREDOC_PORT ?? 8377);
-  return { dbPath: join(dataDir, 'docs.db'), port, publicUrl: process.env.SHAREDOC_PUBLIC_URL };
+  // Default stays 127.0.0.1 — SHAREDOC_BIND_HOST is an explicit opt-in (e.g. Docker's
+  // 0.0.0.0, since 127.0.0.1 inside a container is unreachable via `docker run -p`).
+  const bindHost = process.env.SHAREDOC_BIND_HOST ?? '127.0.0.1';
+  return { dbPath: join(dataDir, 'docs.db'), port, publicUrl: process.env.SHAREDOC_PUBLIC_URL, bindHost };
 }
 
 function warnIfDbLarge(dbPath: string): void {
@@ -46,12 +49,14 @@ async function probeExistingViewer(port: number, dbPath: string): Promise<'ours'
 
 /** `sharedoc-mcp serve` — standalone viewer daemon (no MCP): links outlive MCP clients. */
 async function serveDaemon(): Promise<void> {
-  const { dbPath, port, publicUrl } = selfHostConfig();
+  const { dbPath, port, publicUrl, bindHost } = selfHostConfig();
   const backend = new SelfHostBackend({ dbPath, publicUrl: publicUrl ?? `http://127.0.0.1:${port}` });
   warnIfDbLarge(dbPath);
-  const viewer = await startViewer(backend, { port });
+  const viewer = await startViewer(backend, { port, bindHost });
   if (!publicUrl) backend.setPublicUrl(`http://127.0.0.1:${viewer.port}`);
-  console.error(`sharedoc-mcp: viewer daemon listening on 127.0.0.1:${viewer.port} (localhost only — use a tunnel to share externally)`);
+  console.error(bindHost === '127.0.0.1'
+    ? `sharedoc-mcp: viewer daemon listening on 127.0.0.1:${viewer.port} (localhost only — use a tunnel to share externally)`
+    : `sharedoc-mcp: viewer daemon listening on ${bindHost}:${viewer.port} — WARNING: bound beyond localhost (SHAREDOC_BIND_HOST). Exposure now depends entirely on your firewall/network — anyone who can reach this address reaches the viewer. Set SHAREDOC_PUBLIC_URL if the externally-visible address differs (e.g. a Docker host port mapping).`);
   let stopping = false;
   const stop = () => {
     if (stopping) return;   // a second signal during drain must not throw (review M3)
@@ -71,15 +76,17 @@ async function makeBackend(): Promise<ShareBackend> {
     return new GistBackend(store, execRunner);
   }
   if (backendName === 'selfhost') {
-    const { dbPath, port, publicUrl } = selfHostConfig();
+    const { dbPath, port, publicUrl, bindHost } = selfHostConfig();
     const backend = new SelfHostBackend({ dbPath, publicUrl: publicUrl ?? `http://127.0.0.1:${port}` });
     warnIfDbLarge(dbPath);
     try {
-      const viewer = await startViewer(backend, { port });
+      const viewer = await startViewer(backend, { port, bindHost });
       // SHAREDOC_PORT=0 (ephemeral) resolves to a real port only after listen —
       // rebind publicUrl to the actual port unless the user pinned SHAREDOC_PUBLIC_URL.
       if (!publicUrl) backend.setPublicUrl(`http://127.0.0.1:${viewer.port}`);
-      console.error(`sharedoc-mcp: viewer listening on 127.0.0.1:${viewer.port} (localhost only — use a tunnel to share externally)`);
+      console.error(bindHost === '127.0.0.1'
+        ? `sharedoc-mcp: viewer listening on 127.0.0.1:${viewer.port} (localhost only — use a tunnel to share externally)`
+        : `sharedoc-mcp: viewer listening on ${bindHost}:${viewer.port} — WARNING: bound beyond localhost (SHAREDOC_BIND_HOST). Exposure now depends entirely on your firewall/network.`);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'EADDRINUSE') {
         if (await probeExistingViewer(port, dbPath) === 'ours') {

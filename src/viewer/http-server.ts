@@ -90,8 +90,8 @@ function readBody(req: IncomingMessage, limit = 64 * 1024): Promise<string> {
 
 export async function startViewer(
   backend: SelfHostBackend,
-  opts: { port: number; now?: () => Date },
-): Promise<{ port: number; close(): Promise<void> }> {
+  opts: { port: number; now?: () => Date; bindHost?: string },
+): Promise<{ port: number; host: string; close(): Promise<void> }> {
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
 
@@ -116,6 +116,7 @@ export async function startViewer(
 
       if (req.method === 'GET') {
         if (row.passwordHash) { head(res, 200, html).end(passwordForm(docId)); return; }
+        backend.recordView(docId);
         head(res, 200, html).end(renderDoc(row.title, row.content));
         return;
       }
@@ -141,6 +142,7 @@ export async function startViewer(
         const password = new URLSearchParams(body).get('password') ?? '';
         if (!row.passwordHash || bcrypt.compareSync(password, row.passwordHash)) {
           backend.rateClear(key);
+          backend.recordView(docId);
           head(res, 200, html).end(renderDoc(row.title, row.content));
         } else {
           backend.rateRecordFailure(key);
@@ -165,13 +167,19 @@ export async function startViewer(
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    // SECURITY: 127.0.0.1 only — public exposure is the user's tunnel's job.
-    server.listen(opts.port, '127.0.0.1', resolve);
+    // SECURITY: defaults to 127.0.0.1 only — public exposure is the user's tunnel's
+    // job. opts.bindHost is an explicit, opt-in escape hatch (e.g. Docker's
+    // SHAREDOC_BIND_HOST=0.0.0.0, needed because 127.0.0.1 inside a container is not
+    // reachable through `docker run -p`) — callers must default it to 127.0.0.1
+    // themselves; this function does not silently widen exposure.
+    server.listen(opts.port, opts.bindHost ?? '127.0.0.1', resolve);
   });
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : opts.port;
+  const host = typeof addr === 'object' && addr ? addr.address : (opts.bindHost ?? '127.0.0.1');
   return {
     port,
+    host,
     close: () => new Promise<void>((resolve, reject) =>
       server.close(err => (err ? reject(err) : resolve()))),
   };
