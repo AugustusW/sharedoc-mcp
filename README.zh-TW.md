@@ -89,7 +89,7 @@ code --add-mcp '{"name":"sharedoc","command":"npx","args":["-y","sharedoc-mcp@^2
 
 **方式 E — 其他 MCP client：**以 stdio server 執行 `npx -y sharedoc-mcp@^2`。
 
-> **為什麼用 `@^2`？**裸的 `npx -y sharedoc-mcp` 每次冷啟動解析**最新已發佈版本**——未來的 3.0 可能在你不知情下改變行為（甚至移除工具）。`@^2` 跟得上 2.x 修正、但永不跨 breaking 大版；想零漂移就釘精確版本（`@2.1.0`）。
+> **為什麼用 `@^2`？**裸的 `npx -y sharedoc-mcp` 每次冷啟動解析**最新已發佈版本**——未來的 3.0 可能在你不知情下改變行為（甚至移除工具）。`@^2` 跟得上 2.x 修正、但永不跨 breaking 大版；想零漂移就釘精確版本（`@2.2.0`）。
 
 ## 選後端
 
@@ -243,11 +243,11 @@ npm test        # 先 build 再跑 105 個離線測試——gh CLI 以 mock 替�
 
 ## 狀態
 
-v2.1.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 105 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
+v2.2.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 105 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
 
 - macOS（Apple Silicon）、Node v25——gist + selfhost 兩後端
 
-Tunnel 食譜依各工具的標準行為撰寫；Windows／Linux 與真實 tunnel 端到端**尚未驗證**——歡迎回報。
+Tunnel 食譜依各工具的標準行為撰寫；Windows／Linux 與真實 tunnel 端到端**尚未驗證**——歡迎回報。上述人工驗證早於 2.2.0：2.2.0 新增的部分（`update_shared_doc_content`、瀏覽統計、分頁、Docker）有測試涵蓋，但尚未做過同等的人工實跑。
 
 ## 授權
 
