@@ -1,0 +1,27 @@
+name: ci
+
+# Until now the suite only ran inside `npm publish` (prepublishOnly), so a
+# red test could sit on main for weeks between releases. This runs the same
+# `npm test` (pretest builds first) on every push and pull request, including
+# tests/docs.test.ts, so a stale README number or CHANGELOG entry goes red
+# here instead of shipping quietly.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test

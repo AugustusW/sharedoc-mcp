@@ -55,7 +55,7 @@ AI agent 整天在產 Markdown——報告、研究摘要、會議記錄。要�
 - ✓ `search_shared_docs` 支援 offset 分頁（回應含 `hasMore`），selfhost 另有瀏覽統計（`viewCount`/`lastViewedAt`，僅成功渲染才計入）
 - ✓ [Docker](#docker) 一行指令跑 standalone `serve` daemon，預設跟其他地方一樣只 bind 127.0.0.1
 - ✓ 兩個 MCP client 可共用同一資料目錄：SQLite WAL + busy timeout、埠衝突優雅共存
-- ✓ 105 個離線測試；乾淨 checkout `npm test` 直接綠
+- ✓ 110 個離線測試；乾淨 checkout `npm test` 直接綠
 
 ## 安裝
 
@@ -235,7 +235,7 @@ docker run -d --name sharedoc \
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # 先 build 再跑 105 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
+npm test        # 先 build 再跑 110 個離線測試——gh CLI 以 mock 替身，HTTP 測試只打 127.0.0.1
 ```
 
 版本規則：每次釋出 bump `package.json` 的 `version`、加一筆 [CHANGELOG](./CHANGELOG.md)、打 git tag 發 [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp)。
@@ -243,7 +243,7 @@ npm test        # 先 build 再跑 105 個離線測試——gh CLI 以 mock 替�
 
 ## 狀態
 
-v2.2.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 105 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
+v2.2.0（[CHANGELOG](./CHANGELOG.md)）——核心邏輯有 110 個離線單元/整合測試（`gh` CLI 以 mock 模擬；HTTP 測試只打 127.0.0.1；不需網路）。完整流程於 2026-07-25 人工驗證（經 built server 走 stdio JSON-RPC 實建 secret gist 的建立/索引/刪除，以及 selfhost 密碼流程端到端——表單 → 錯密碼 401 → 對密碼 200 → 限流 429 → 撤銷 410——並以 `lsof` 確認僅 bind 127.0.0.1），環境：
 
 - macOS（Apple Silicon）、Node v25——gist + selfhost 兩後端
 

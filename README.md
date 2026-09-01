@@ -55,7 +55,7 @@ content lives in chat scroll          revoke / extend / append later
 - ✓ `search_shared_docs` supports offset pagination (`hasMore` in the response) and, on selfhost, view stats (`viewCount`/`lastViewedAt`, counted on a successful render only)
 - ✓ [Docker](#docker) one-liner for the standalone `serve` daemon, defaults to the same 127.0.0.1-only binding as everywhere else
 - ✓ Two MCP clients can share one data dir: SQLite WAL + busy timeout, graceful port sharing
-- ✓ 105 offline tests; `npm test` passes on a clean checkout
+- ✓ 110 offline tests; `npm test` passes on a clean checkout
 
 ## Install
 
@@ -237,7 +237,7 @@ Data flow, by backend:
 git clone https://github.com/AugustusW/sharedoc-mcp.git
 cd sharedoc-mcp
 npm install
-npm test        # builds, then runs 105 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
+npm test        # builds, then runs 110 offline tests — gh CLI is mocked, HTTP tests hit 127.0.0.1 only
 ```
 
 Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](./CHANGELOG.md) entry, and is published as a git tag + [GitHub Release](https://github.com/AugustusW/sharedoc-mcp/releases) + [npm](https://www.npmjs.com/package/sharedoc-mcp).
@@ -245,7 +245,7 @@ Versioning: every release bumps `version` in `package.json`, adds a [CHANGELOG](
 
 ## Status
 
-v2.2.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 105 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
+v2.2.0 ([CHANGELOG](./CHANGELOG.md)) — core logic is covered by 110 offline unit/integration tests (the `gh` CLI is mocked; HTTP tests run against 127.0.0.1 only; no network needed). The full flows have been manually verified (2026-07-25: real secret-gist create/index/delete via the built server over stdio JSON-RPC, and the selfhost password flow end-to-end — form → wrong password 401 → correct password 200 → rate-limit 429 → revoke 410 — plus `lsof` confirmation of the 127.0.0.1-only bind) on:
 
 - macOS (Apple Silicon), Node v25 — gist + selfhost backends
 
