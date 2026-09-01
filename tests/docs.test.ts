@@ -19,7 +19,7 @@ const pkgVersion = (JSON.parse(read('package.json')) as { version: string }).ver
 
 // Anchored on the CHANGELOG link so version mentions elsewhere in the READMEs
 // can never be mistaken for the Status one.
-const STATUS_RE = /v(\d+\.\d+\.\d+)\s*[（(]\[CHANGELOG\]/
+const STATUS_RE = /v(\d+\.\d+\.\d+)\s*[（(]\[CHANGELOG\]/g
 const COUNT_RES: Record<string, RegExp> = {
   'README.md': /(\d+) offline (?:unit\/integration )?tests/g,
   'README.zh-TW.md': /(\d+) 個離線(?:單元\/整合)?測試/g,
@@ -33,9 +33,11 @@ describe('docs consistency', () => {
   })
 
   it.each(['README.md', 'README.zh-TW.md'])('%s Status version matches package.json', (name) => {
-    const stated = read(name).match(STATUS_RE)
-    expect(stated, `${name} has no "vX.Y.Z ([CHANGELOG]...)" Status line`).not.toBeNull()
-    expect(stated![1]).toBe(pkgVersion)
+    const stated = [...read(name).matchAll(STATUS_RE)]
+    // Exactly one: a stale duplicate line survives first-wins reading forever
+    // (sepia issue #39 shape).
+    expect(stated.length, `${name} must state the Status version exactly once`).toBe(1)
+    expect(stated[0][1]).toBe(pkgVersion)
   })
 
   it.each(['README.md', 'README.zh-TW.md'])(
